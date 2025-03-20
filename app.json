@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "TorosClub",
+    "slug": "TorosClub",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/toros.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    
+    "permissions": [
+      "CAMERA",
+      "MEDIA_LIBRARY"
+     ],
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "fonts": [
+      {
+        "name": "MiFuente",
+        "file": "./assets/fonts/MiFuente.ttf"
+      }
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.s1sistem.toros"
+    },
+    "android": {
+      "package": "com.s1sistem.toros",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "940bd2e2-f080-48f0-9ef7-9723472315f9"
+      }
+    }
+  }
+}

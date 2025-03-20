@@ -1,0 +1,36 @@
+{
+  "name": "expo-draw",
+  "version": "0.0.5",
+  "description": "Drawing library for expo using svg.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no tests currently\" && exit 1",
+    "deploy": "npm publish"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LucaFenner/expo-draw.git"
+  },
+  "keywords": [
+    "react-native",
+    "svg",
+    "draw",
+    "android",
+    "ios",
+    "mobile",
+    "expo",
+    "sketch",
+    "signaturepad"
+  ],
+  "author": "Eduardo Marangoni",
+  "license": "MIT",
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*",
+    "react-native-svg": "*"
+  },
+  "dependencies": {
+    "humps": "^2.0.1"
+  }
+}

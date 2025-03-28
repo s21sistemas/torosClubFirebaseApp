@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, Aler
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { auth } from '../firebaseConfig'; // Importa Firebase Auth
-import { signInWithEmailAndPassword } from 'firebase/auth'; // Importa la función de inicio de sesión
+import { signInWithEmailAndPassword, userCredential } from 'firebase/auth'; // Importa la función de inicio de sesión
 
 SplashScreen.preventAutoHideAsync();
 
@@ -58,11 +58,11 @@ const LoginScreen = ({ navigation }) => {
       try {
         // Iniciar sesión con Firebase Authentication
         await signInWithEmailAndPassword(auth, correo, contrasena);
-        console.log('Usuario autenticado');
         navigation.navigate('MainTabs'); // Navegar a la pantalla principal después del login
       } catch (error) {
         console.error('Error al iniciar sesión:', error);
         Alert.alert('Error', 'Correo o contraseña incorrectos. Por favor, intenta de nuevo.');
+        showAlert('Error', 'Correo o contraseña incorrectos. Por favor, intenta de nuevo.');
       }
     }
   };
@@ -72,7 +72,7 @@ const LoginScreen = ({ navigation }) => {
       <View style={styles.rectangle}>
         <View style={styles.leftColumn}>
           <Image
-            source={require('../assets/logo.jpg')}
+            source={require('../assets/logoToros.jpg')}
             style={styles.image}
             resizeMode="contain"
           />
@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
   },
   leftColumn: {
     flex: 1,
-    backgroundColor: '#FBBE08',
+    backgroundColor: '#ffbe00',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   loginButton: {
-    backgroundColor: '#FBBE08',
+    backgroundColor: '#ffbe00',
     padding: 10,
     borderRadius: 22,
     alignItems: 'center',
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   linkText: {
-    color: '#FBBE08',
+    color: '#ffbe00',
     textAlign: 'center',
     marginBottom: 10,
   },

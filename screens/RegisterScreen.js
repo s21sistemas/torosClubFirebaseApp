@@ -70,6 +70,29 @@ const RegisterScreen = ({ navigation }) => {
     return querySnapshot.empty; // Devuelve true si el código es único
   };
 
+  // Función para enviar el código por correo usando Cloud Run
+  const sendEmail = async (email, code) => {
+    try {
+      const response = await fetch('https://us-central1-clubtoros-c8a29.cloudfunctions.net/sendEmailFunction', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, code }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        console.log('Correo enviado correctamente.');
+      } else {
+        throw new Error('No se pudo enviar el correo.');
+      }
+    } catch (err) {
+      console.error('Error al enviar el correo:', err);
+      throw new Error('No se pudo enviar el correo.');
+    }
+  };
+
   const handleRegister = async () => {
     if (validateForm()) {
       try {
@@ -100,6 +123,9 @@ const RegisterScreen = ({ navigation }) => {
         // Guardar los datos en Firestore
         await addDoc(collection(db, 'usuarios'), userData);
 
+        // Enviar el código por correo usando Cloud Run
+        await sendEmail(correo, codigoAcceso);
+
         showAlert('Éxito', `Usuario registrado correctamente. Tu código de acceso es: ${codigoAcceso}`);
         navigation.navigate('Login');
       } catch (err) {
@@ -114,7 +140,7 @@ const RegisterScreen = ({ navigation }) => {
       <View style={styles.rectangle}>
         <View style={styles.leftColumn}>
           <Image
-            source={require('../assets/logo.jpg')}
+            source={require('../assets/logoToros.jpg')}
             style={styles.image}
             resizeMode="contain"
           />
@@ -188,7 +214,7 @@ const styles = StyleSheet.create({
   },
   leftColumn: {
     flex: 1,
-    backgroundColor: '#FBBE08',
+    backgroundColor: '#ffbe00',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -213,7 +239,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   loginButton: {
-    backgroundColor: '#FBBE08',
+    backgroundColor: '#ffbe00',
     padding: 10,
     borderRadius: 20,
     alignItems: 'center',
@@ -224,7 +250,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   linkText: {
-    color: '#FBBE08',
+    color: '#ffbe00',
     textAlign: 'center',
     marginBottom: 10,
   },

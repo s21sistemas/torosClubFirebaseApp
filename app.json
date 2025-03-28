@@ -4,7 +4,7 @@
     "slug": "TorosClub",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/toros.png",
+    "icon": "./assets/logoToros.jpg",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     
@@ -28,10 +28,10 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.s1sistem.toros"
+      "bundleIdentifier": "com.s1sistem.potros"
     },
     "android": {
-      "package": "com.s1sistem.toros",
+      "package": "com.s1sistem.potros",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"

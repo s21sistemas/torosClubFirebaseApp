@@ -3,8 +3,11 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import { TouchableOpacity } from 'react-native';
 import { auth } from './firebaseConfig';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+
+// Importaciones absolutas desde la carpeta screens
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
@@ -25,8 +28,6 @@ const MainTabs = () => {
 
           if (route.name === 'Perfil') {
             iconName = focused ? 'person' : 'person-outline';
-          } else if (route.name === 'Pagos') {
-            iconName = focused ? 'wallet' : 'wallet-outline';
           } else if (route.name === 'Equipamiento') {
             iconName = focused ? 'shirt' : 'shirt-outline';
           }
@@ -39,7 +40,6 @@ const MainTabs = () => {
       })}
     >
       <Tab.Screen name="Perfil" component={ProfileScreen} />
-      <Tab.Screen name="Pagos" component={PagosScreen} />
       <Tab.Screen name="Equipamiento" component={EquipamientoScreen} />
     </Tab.Navigator>
   );
@@ -68,36 +68,51 @@ const App = () => {
 
   return (
     <SafeAreaProvider>
-        <NavigationContainer>
-          <Stack.Navigator initialRouteName={isLoggedIn ? 'MainTabs' : 'Login'}>
-            <Stack.Screen
-              name="Login"
-              component={LoginScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="Register"
-              component={RegisterScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="ForgotPassword"
-              component={ForgotPasswordScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="MainTabs"
-              component={MainTabs}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="HomeScreen"
-              component={HomeScreen}
-              options={{ headerShown: false }}
-            />
-          </Stack.Navigator>
-        </NavigationContainer>
-      
+      <NavigationContainer>
+        <Stack.Navigator initialRouteName={isLoggedIn ? 'MainTabs' : 'Login'}>
+          <Stack.Screen
+            name="Login"
+            component={LoginScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Register"
+            component={RegisterScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="ForgotPassword"
+            component={ForgotPasswordScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="MainTabs"
+            component={MainTabs}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="HomeScreen"
+            component={HomeScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Pagos"
+            component={PagosScreen}
+            options={({ navigation }) => ({
+              headerLeft: () => (
+                <TouchableOpacity 
+                  onPress={() => navigation.goBack()}
+                  style={{ marginLeft: 15 }}
+                >
+                  <Ionicons name="arrow-back" size={24} color="#000" />
+                </TouchableOpacity>
+              ),
+              title: 'Pagos del Jugador',
+              headerTitleAlign: 'center',
+            })}
+          />
+        </Stack.Navigator>
+      </NavigationContainer>
     </SafeAreaProvider>
   );
 };

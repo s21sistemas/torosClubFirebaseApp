@@ -79,6 +79,8 @@ const LoginScreen = ({ navigation }) => {
         </View>
         <View style={styles.rightColumn}>
           <Text style={styles.welcomeText}>Iniciar Sesión</Text>
+          <Text style={styles.subtitle}>Acceso exclusivo para padres/tutores de jugadores</Text>
+          
           <TextInput
             style={styles.input}
             placeholder="Correo"
@@ -146,7 +148,14 @@ const styles = StyleSheet.create({
     fontSize: 40,
     color: '#000',
     textAlign: 'center',
-    paddingBottom: 20,
+    paddingBottom: 10,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 15,
+    fontStyle: 'italic',
   },
   input: {
     height: 45,

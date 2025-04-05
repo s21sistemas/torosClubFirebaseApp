@@ -1,8 +1,7 @@
-
 import { initializeApp } from 'firebase/app';
-import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
-import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
-import { getFirestore, initializeFirestore, } from "firebase/firestore";
+import { initializeAuth, getReactNativePersistence, browserLocalPersistence } from 'firebase/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { initializeFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC7X0-FNbdjpvriSxihbfyeLyTRNytu4vo",
@@ -14,28 +13,20 @@ const firebaseConfig = {
   measurementId: "G-5S51N7ED37"
 };
 
+// Inicializar Firebase
 const app = initializeApp(firebaseConfig);
 
-
-// Verifica si ya hay una instancia de Firebase antes de inicializarla
-
-// Inicializa Firestore con opciones avanzadas
-const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true, // Fuerza el uso de long polling en redes restringidas
-  useFetchStreams: false, // Desactiva fetch para evitar problemas en Expo
+// Configuración de Auth con persistencia multiplataforma
+const auth = initializeAuth(app, {
+  persistence: typeof window === 'undefined' 
+    ? getReactNativePersistence(AsyncStorage) 
+    : browserLocalPersistence
 });
-// Configura Firebase Auth dependiendo de la plataforma
-let auth;
-if (typeof window === 'undefined') {
-  // Entorno de React Native
-  auth = initializeAuth(app, {
-    persistence: getReactNativePersistence(ReactNativeAsyncStorage),
-  });
-} else {
-  // Entorno Web
-  const { getAuth } = require('firebase/auth');
-  auth = getAuth(app);
-}
+
+// Configuración de Firestore
+const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  useFetchStreams: false,
+});
 
 export { app, auth, db };
-

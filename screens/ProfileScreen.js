@@ -7,14 +7,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   ScrollView,
-  SafeAreaView, 
+  SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../firebaseConfig';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
-// Función helper para formatear valores
 const formatValue = (value) => {
   if (value === null || value === undefined) return 'N/A';
   if (typeof value === 'object') {
@@ -184,14 +183,30 @@ const ProfileScreen = ({ navigation }) => {
         {players.length > 0 ? (
           players.map((player, index) => (
             <View key={`player-${player.id || index}`} style={styles.card}>
-              <CustomImage uri={player.foto} style={styles.cardImage} />
-              <View style={styles.cardContent}>
-                <Text style={styles.cardName}>
-                  {formatValue(player.nombre)} {formatValue(player.apellido_p)} {formatValue(player.apellido_m)}
-                </Text>
-                <Text style={styles.cardDetail}>Tipo: {formatValue(player.tipo_inscripcion)}</Text>
-                <Text style={styles.cardDetail}>MFL: {formatValue(player.numero_mfl)}</Text>
-                <Text style={styles.cardDetail}>Categoría: {formatValue(player.categoria)}</Text>
+              <View style={styles.cardLeft}>
+                <CustomImage uri={player.foto} style={styles.cardImage} />
+                <View style={styles.cardInfo}>
+                  <Text style={styles.cardName}>
+                    {formatValue(player.nombre)} {formatValue(player.apellido_p)} {formatValue(player.apellido_m)}
+                  </Text>
+                  <Text style={styles.cardDetail}>Tipo: {formatValue(player.tipo_inscripcion)}</Text>
+                  <Text style={styles.cardDetail}>MFL: {formatValue(player.numero_mfl)}</Text>
+                  <Text style={styles.cardDetail}>Categoría: {formatValue(player.categoria)}</Text>
+                </View>
+              </View>
+              <View style={styles.cardButtons}>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.pagosButton]}
+                  onPress={() => navigation.navigate('Pagos', { jugadorId: player.id })}
+                >
+                  <Text style={styles.buttonText}>Ver Pagos</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.equipmentButton]}
+                  onPress={() => navigation.navigate('Equipamiento', { jugadorId: player.id })}
+                >
+                  <Text style={styles.buttonText}>Ver Equipamiento</Text>
+                </TouchableOpacity>
               </View>
             </View>
           ))
@@ -203,14 +218,33 @@ const ProfileScreen = ({ navigation }) => {
         {cheerleaders.length > 0 ? (
           cheerleaders.map((cheerleader, index) => (
             <View key={`cheerleader-${cheerleader.id || index}`} style={styles.card}>
-              <CustomImage uri={cheerleader.foto} style={styles.cardImage} />
-              <View style={styles.cardContent}>
-                <Text style={styles.cardName}>
-                  {formatValue(cheerleader.nombre)} {formatValue(cheerleader.apellido_p)} {formatValue(cheerleader.apellido_m)}
-                </Text>
-                <Text style={styles.cardDetail}>Tipo: {formatValue(cheerleader.tipo_inscripcion)}</Text>
-                <Text style={styles.cardDetail}>MFL: {formatValue(cheerleader.numero_mfl)}</Text>
-                <Text style={styles.cardDetail}>Categoría: {formatValue(cheerleader.categoria)}</Text>
+              <View style={styles.cardLeft}>
+                <CustomImage uri={cheerleader.foto} style={styles.cardImage} />
+                <View style={styles.cardInfo}>
+                  <Text style={styles.cardName}>
+                    {formatValue(cheerleader.nombre)} {formatValue(cheerleader.apellido_p)} {formatValue(cheerleader.apellido_m)}
+                  </Text>
+                  <Text style={styles.cardDetail}>Tipo: {formatValue(cheerleader.tipo_inscripcion)}</Text>
+                  <Text style={styles.cardDetail}>MFL: {formatValue(cheerleader.numero_mfl)}</Text>
+                  <Text style={styles.cardDetail}>Categoría: {formatValue(cheerleader.categoria)}</Text>
+                </View>
+              </View>
+              <View style={styles.cardButtons}>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.pagosButton]}
+                onPress={() => navigation.navigate('Pagos', { 
+                  jugadorId: cheerleader.id,
+                  esPorrista: true 
+                })}
+              >
+                <Text style={styles.buttonText}>Ver Pagos</Text>
+              </TouchableOpacity>
+                {/*<TouchableOpacity
+                  style={[styles.actionButton, styles.equipmentButton]}
+                  onPress={() => navigation.navigate('Equipamiento', { jugadorId: cheerleader.id })}
+                >
+                  <Text style={styles.buttonText}>Ver Equipamiento</Text>
+                </TouchableOpacity>*/}
               </View>
             </View>
           ))
@@ -241,7 +275,6 @@ const ProfileScreen = ({ navigation }) => {
   );
 };
 
-// Los estilos se mantienen igual que en tu código original
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -307,7 +340,6 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
   card: {
-    flexDirection: 'row',
     backgroundColor: '#fff',
     borderRadius: 10,
     padding: 15,
@@ -317,11 +349,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  cardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   cardImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     marginRight: 15,
   },
   imagePlaceholder: {
@@ -329,8 +369,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  cardContent: {
-    justifyContent: 'center',
+  cardInfo: {
     flex: 1,
   },
   cardName: {
@@ -343,6 +382,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#555',
     marginBottom: 3,
+  },
+  cardButtons: {
+    marginLeft: 10,
+    alignItems: 'flex-end',
+  },
+  actionButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 5,
+    marginBottom: 8,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  pagosButton: {
+    backgroundColor: '#ffbe00',
+  },
+  equipmentButton: {
+    backgroundColor: '#2c3e50',
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
   noDataText: {
     textAlign: 'center',

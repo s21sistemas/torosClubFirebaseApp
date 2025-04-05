@@ -13,8 +13,9 @@ import { getFirestore, collection, addDoc, query, where, getDocs, doc, updateDoc
 import { getAuth } from 'firebase/auth';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
-
+import { obtenerCategoria } from '../utils/obtenerCategoria';
 // Configuración de Firebase
+//ffbe00
 import { app } from '../firebaseConfig';
 
 const storage = getStorage(app);
@@ -27,6 +28,7 @@ const HomeScreen = ({ navigation }) => {
     apellido_p: '',
     apellido_m: '',
     sexo: '',
+    categoria:'',
     direccion: '',
     telefono: '',
     fecha_nacimiento: new Date(),
@@ -62,7 +64,7 @@ const HomeScreen = ({ navigation }) => {
   const [uploadProgress, setUploadProgress] = useState({});
   const [currentUpload, setCurrentUpload] = useState(null);
   const signatureRef = useRef(null);
-
+  const [categoria, setCategoria] = useState(null);
   const steps = [
     'GeneroForm',
     'TipoInscripcionForm',
@@ -79,10 +81,9 @@ const HomeScreen = ({ navigation }) => {
     try {
       let finalUri = fileUri;
       let blob;
-
-      // Manejo especial para Android y Web
+  
+      // Manejo especial para Android
       if (Platform.OS === 'android' && fileUri.startsWith('content://')) {
-        // Android: copiar el archivo a la caché
         const cacheFileUri = `${FileSystem.cacheDirectory}${fileName}`;
         await FileSystem.copyAsync({
           from: fileUri,
@@ -90,55 +91,36 @@ const HomeScreen = ({ navigation }) => {
         });
         finalUri = cacheFileUri;
       }
-
-      // Convertir el archivo a blob
+  
+      // Convertir a blob
       if (Platform.OS === 'web') {
-        // Para web: usar fetch directamente
         const response = await fetch(fileUri);
         blob = await response.blob();
       } else {
-        // Para móvil: usar FileSystem para leer el archivo
         const fileInfo = await FileSystem.getInfoAsync(finalUri);
-        if (!fileInfo.exists) {
-          throw new Error('El archivo no existe');
-        }
-        
+        if (!fileInfo.exists) throw new Error('El archivo no existe');
         const response = await fetch(finalUri);
         blob = await response.blob();
       }
-
-      // Generar nombre único para el archivo
+  
+      // Subir a Storage
       const fileExtension = fileName.split('.').pop() || (blob.type.split('/')[1] || 'jpg');
       const newFileName = `${folder}/${Date.now()}.${fileExtension}`;
-      
-      // Crear referencia en Storage
       const storageRef = ref(storage, newFileName);
-      
-      // Subir el archivo con seguimiento de progreso
       const uploadTask = uploadBytesResumable(storageRef, blob);
-
+  
       return new Promise((resolve, reject) => {
         uploadTask.on('state_changed',
           (snapshot) => {
             const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
             setUploadProgress(prev => ({ ...prev, [folder]: progress }));
           },
-          (error) => {
-            console.error('Error en la subida:', error);
-            reject(error);
-          },
+          (error) => reject(error),
           async () => {
             try {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              resolve({
-                url: downloadURL,
-                name: fileName,
-                type: blob.type,
-                size: blob.size,
-                path: newFileName
-              });
+              resolve(downloadURL);
             } catch (error) {
-              console.error('Error al obtener URL:', error);
               reject(error);
             }
           }
@@ -284,55 +266,39 @@ const HomeScreen = ({ navigation }) => {
       try {
         const auth = getAuth();
         const user = auth.currentUser;
-        const uid = user ? user.uid : null;
-
-        if (!uid) {
-          throw new Error('No se pudo obtener el UID del usuario.');
-        }
-
-        // Subir foto del jugador
-        let fotoJugadorURL = null;
-        if (formData.foto_jugador) {
-          setCurrentUpload('foto_jugador');
-          fotoJugadorURL = await uploadFile(formData.foto_jugador, 'foto_jugador.jpg', 'fotos');
-        }
-
-        // Subir firma
-        let firmaURL = null;
-        if (formData.firma.length > 0) {
-          setCurrentUpload('firma');
-          firmaURL = await captureSignature();
-          if (firmaURL) {
-            firmaURL = await uploadFile(firmaURL, 'firma.png', 'firmas');
-          }
-        }
-
-        // Subir documentos
+        const uid = user?.uid;
+        if (!uid) throw new Error('No se pudo obtener el UID del usuario.');
+  
+        // Subir archivos (devuelven URLs directas)
+        const [fotoJugadorURL, firmaURL] = await Promise.all([
+          formData.foto_jugador ? uploadFile(formData.foto_jugador, 'foto_jugador.jpg', 'fotos') : null,
+          formData.firma.length > 0 ? (async () => {
+            const firmaDataURL = await captureSignature();
+            return firmaDataURL ? uploadFile(firmaDataURL, 'firma.png', 'firmas') : null;
+          })() : null
+        ]);
+  
+        // Subir documentos (solo URLs)
         const documentosSubidos = {};
-        const documentosFields = [
-          'ine_tutor', 
-          'curp_jugador', 
-          'acta_nacimiento', 
-          'comprobante_domicilio'
-        ];
-
-        for (const field of documentosFields) {
+        const documentosFields = ['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'];
+        
+        await Promise.all(documentosFields.map(async (field) => {
           if (formData.documentos[field]?.uri) {
-            setCurrentUpload(field);
             documentosSubidos[field] = await uploadFile(
               formData.documentos[field].uri,
               formData.documentos[field].name || `${field}.pdf`,
               'documentos'
             );
           }
-        }
-
-        // Crear objeto para Firestore
+        }));
+  
+        // Crear registro principal
         const datosRegistro = {
           nombre: formData.nombre,
           apellido_p: formData.apellido_p,
           apellido_m: formData.apellido_m,
           sexo: formData.sexo,
+          categoria: formData.categoria,
           direccion: formData.direccion,
           telefono: formData.telefono,
           fecha_nacimiento: formData.fecha_nacimiento.toISOString().split('T')[0],
@@ -344,10 +310,14 @@ const HomeScreen = ({ navigation }) => {
           padecimientos: formData.padecimientos,
           peso: formData.peso,
           tipo_inscripcion: formData.tipo_inscripcion,
-          foto: fotoJugadorURL?.url || null,
+          foto: fotoJugadorURL, // URL directa
           documentos: {
-            ...documentosSubidos,
-            firma: firmaURL?.url || null
+            // URLs directas
+            ine_tutor: documentosSubidos.ine_tutor || null,
+            curp_jugador: documentosSubidos.curp_jugador || null,
+            acta_nacimiento: documentosSubidos.acta_nacimiento || null,
+            comprobante_domicilio: documentosSubidos.comprobante_domicilio || null,
+            firma: firmaURL || null
           },
           activo: 'activo',
           numero_mfl: formData.numero_mfl,
@@ -357,25 +327,44 @@ const HomeScreen = ({ navigation }) => {
             transferencia: formData.transferencia
           })
         };
-
-        // Determinar colección (jugadores o porristas)
+  
+        // Guardar en colección principal
         const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
+        const docRef = await addDoc(collection(db, coleccion), datosRegistro);
+  
+        // Crear registro de pagos
+        const montoTotal = formData.tipo_inscripcion === 'porrista' ? 1500 : 2000;
+        const montoPorPago = montoTotal / 4;
         
-        // Guardar en Firestore
-        await addDoc(collection(db, coleccion), datosRegistro);
-
+        const pagosData = {
+          fecha_registro: new Date().toISOString().split('T')[0],
+          jugadorId: docRef.id,
+          monto_total: montoTotal,
+          monto_total_pagado: 0,
+          monto_total_pendiente: montoTotal,
+          nombre: `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`,
+          pagos: [
+            { tipo: "Inscripción", monto: montoPorPago, estatus: "pendiente", fecha_limite: "2025/04/04", fecha_pago: null },
+            { tipo: "Coaching", monto: montoPorPago, estatus: "pendiente", fecha_pago: null },
+            { tipo: "Túnel", monto: montoPorPago, estatus: "pendiente", fecha_pago: null },
+            { tipo: "Botiquín", monto: montoPorPago, estatus: "pendiente", fecha_pago: null }
+          ]
+        };
+  
+        const coleccionPagos = formData.tipo_inscripcion === 'porrista' ? 'pagos_porristas' : 'pagos_jugadores';
+        await addDoc(collection(db, coleccionPagos), pagosData);
+  
         Alert.alert('Éxito', 'Registro completado correctamente');
         navigation.navigate('MainTabs');
       } catch (error) {
-        console.error('Error al enviar el formulario:', error);
-        Alert.alert('Error', 'No se pudo completar el registro: ' + error.message);
+        console.error('Error en handleSubmit:', error);
+        Alert.alert('Error', error.message || 'Error al completar el registro');
       } finally {
         setLoading(false);
         setCurrentUpload(null);
       }
     }
   };
-
   const renderForm = () => {
     switch (steps[currentStep]) {
       case 'GeneroForm':
@@ -675,6 +664,16 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
     formData.fecha_nacimiento ? new Date(formData.fecha_nacimiento).toISOString().split('T')[0] : ''
   );
 
+  // Actualizar categoría cuando cambia la fecha o el sexo
+  useEffect(() => {
+    if (formData.fecha_nacimiento && formData.sexo) {
+      const fechaFormateada = formData.fecha_nacimiento.toISOString().split('T')[0];
+      const resultado = obtenerCategoria(formData.sexo, fechaFormateada);
+      console.log(resultado);
+      setFormData(prev => ({ ...prev, categoria: resultado }));
+    }
+  }, [formData.fecha_nacimiento, formData.sexo]);
+
   // Función para manejar cambio de fecha en móvil
   const onChangeMobile = (event, selectedDate) => {
     setShowPicker(false);
@@ -778,6 +777,18 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
       <Text style={styles.selectedDate}>
         Fecha seleccionada: {formatDate(date)}
       </Text>
+
+      {/* Mostrar categoría asignada */}
+      {formData.categoria && (
+        <View style={styles.categoriaContainer}>
+          <Text style={styles.categoriaText}>
+            Categoría asignada: <Text style={styles.categoriaValue}>{formData.categoria}</Text>
+          </Text>
+          {formData.categoria === 'NC' && (
+            <Text style={styles.categoriaNota}>*El jugador está fuera de los rangos de edad (2008-2020)</Text>
+          )}
+        </View>
+      )}
 
       <TextInput
         style={styles.input}
@@ -1228,14 +1239,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: 10,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#ffbe00',
   },
   secondaryButtonText: {
     color: '#333',
     fontWeight: '500',
   },
   submitButton: {
-    backgroundColor: '#2e86de',
+    backgroundColor: '#ffbe00',
     padding: 15,
     borderRadius: 5,
     alignItems: 'center',
@@ -1255,7 +1266,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 20,
     left: 20,
-    backgroundColor: '#ccc',
+    backgroundColor: '#ffbe00',
     padding: 15,
     borderRadius: 5,
   },
@@ -1296,7 +1307,7 @@ const styles = StyleSheet.create({
   selectedDate: {
     fontSize: 16,
     marginBottom: 15,
-    color: '#555',
+    color: '#555555',
   },
   loadingOverlay: {
     position: 'absolute',
@@ -1311,7 +1322,7 @@ const styles = StyleSheet.create({
   uploadingText: {
     marginTop: 10,
     fontSize: 16,
-    color: '#333',
+    color: '#333333',
   },
   reinscripcionContainer: {
     marginTop: 20,
@@ -1319,26 +1330,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9f9f9',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: '#eeeeee',
   },
   playerInfoContainer: {
     marginTop: 20,
     padding: 15,
-    backgroundColor: '#fff',
+    backgroundColor: '#ffffff',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#dddddd',
   },
   playerInfoTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 10,
-    color: '#333',
+    color: '#333333',
   },
   playerInfoText: {
     fontSize: 14,
     marginBottom: 5,
-    color: '#555',
+    color: '#555555',
   },
   playerImage: {
     width: 80,
@@ -1361,7 +1372,7 @@ const styles = StyleSheet.create({
     color: '#444',
   },
   uploadButton: {
-    backgroundColor: '#e1e1e1',
+    backgroundColor: '#ffbe00',
     padding: 12,
     borderRadius: 6,
     alignItems: 'center',
@@ -1375,7 +1386,7 @@ const styles = StyleSheet.create({
   },
   fileName: {
     fontSize: 14,
-    color: '#666',
+    color: 'green',
     marginLeft: 5,
     flex: 1,
   },
@@ -1400,15 +1411,38 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   disabledButton: {
-    backgroundColor: '#cccccc',
+    backgroundColor: '#ffbe00',
   },
   webInput: {
     borderWidth: 1,
     borderColor: '#ccc',
-    borderRadius: 5,
+    borderRadius: 10,
     padding: 10,
     marginBottom: 15,
     width: '100%',
+  },
+  categoriaContainer: {
+    marginTop: 10,
+    marginBottom: 15,
+    padding: 10,
+    backgroundColor: '#f0f8ff',
+    borderRadius: 5,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4682b4',
+  },
+  categoriaText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  categoriaValue: {
+    fontWeight: 'bold',
+    color: '#2e8b57',
+  },
+  categoriaNota: {
+    fontSize: 14,
+    color: '#ff8c00',
+    marginTop: 5,
+    fontStyle: 'italic',
   },
 });
 

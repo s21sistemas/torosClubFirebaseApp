@@ -112,6 +112,7 @@ const RegisterScreen = ({ navigation }) => {
         // Datos del usuario para guardar en Firestore
         const userData = {
           uid: user.uid, // Guarda el UID del usuario
+          rol_id: user.uid,
           nombre_completo: nombreCompleto,
           correo,
           celular: telefono,
@@ -147,6 +148,8 @@ const RegisterScreen = ({ navigation }) => {
         </View>
         <View style={styles.rightColumn}>
           <Text style={styles.welcomeText}>Registro</Text>
+          <Text style={styles.subtitle}>Registro para padres/tutores de jugadores</Text>
+          
           <TextInput
             style={styles.input}
             placeholder="Nombre Completo"
@@ -228,7 +231,14 @@ const styles = StyleSheet.create({
     fontSize: 40,
     color: '#000',
     textAlign: 'center',
-    paddingBottom: 20,
+    paddingBottom: 10,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    fontStyle: 'italic',
   },
   input: {
     height: 40,

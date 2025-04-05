@@ -1,17 +1,16 @@
 {
   "expo": {
-    "name": "TorosClub",
+    "name": "ClubToros",
     "slug": "TorosClub",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/logoToros.jpg",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    
     "permissions": [
       "CAMERA",
       "MEDIA_LIBRARY"
-     ],
+    ],
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -28,10 +27,10 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.s1sistem.potros"
+      "bundleIdentifier": "com.s1sistem.Toros"
     },
     "android": {
-      "package": "com.s1sistem.potros",
+      "package": "com.s1sistem.Toros",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -44,6 +43,7 @@
       "eas": {
         "projectId": "940bd2e2-f080-48f0-9ef7-9723472315f9"
       }
-    }
+    },
+    "owner": "vicyoshioka"
   }
 }

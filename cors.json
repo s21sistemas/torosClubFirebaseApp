@@ -1,0 +1,11 @@
+[
+    {
+      "maxAgeSeconds": 3600,
+      "method": ["GET", "POST", "PUT"],
+      "origin": [
+        "http://localhost:5173",
+        "https://admin.clubpotros.mx",
+        "http://localhost:8081"
+      ]
+    }
+  ]

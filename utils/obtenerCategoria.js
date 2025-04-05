@@ -1,8 +1,8 @@
 // utils/obtenerCategoria.js
 
 // Función auxiliar para crear el objeto de categoría
-function crearCategoria(codigo, tipo) {
-    return { codigo, tipo };
+function crearCategoria(tipo) {
+    return  tipo ;
   }
   
   // Función principal para determinar la categoría
@@ -51,58 +51,58 @@ function crearCategoria(codigo, tipo) {
       // Categorías juveniles
       if (añoNacimiento === (añoActual - 17) || 
           (añoNacimiento === (añoActual - 16) && mesNacimiento <= 6)) {
-        return crearCategoria('BT', 'juvenil');
+        return crearCategoria('BT - Juvenil');
       } 
       else if ((añoNacimiento === (añoActual - 16) && mesNacimiento >= 7) || 
                (añoNacimiento === (añoActual - 15))) {
-        return crearCategoria('JR', 'juvenil');
+        return crearCategoria('JR - Juvenil');
       }
       else if (añoNacimiento === (añoActual - 14) || 
                (añoNacimiento === (añoActual - 13) && mesNacimiento <= 6)) {
-        return crearCategoria('MG', 'juvenil');
+        return crearCategoria('MG - Juvenil');
       }
       else if ((añoNacimiento === (añoActual - 13) && mesNacimiento >= 7) || 
                (añoNacimiento === (añoActual - 12))) {
-        return crearCategoria('PW', 'juvenil');
+        return crearCategoria('PW - Juvenil');
       }
   
       // Categorías infantiles
       if (añoNacimiento === (añoActual - 11) || 
           (añoNacimiento === (añoActual - 10) && mesNacimiento <= 6)) {
-        return crearCategoria('As', 'flag_infantil_varonil');
+        return crearCategoria('As - Flag Infantil Varonil');
       }
       else if ((añoNacimiento === (añoActual - 10) && mesNacimiento >= 7) || 
                (añoNacimiento === (añoActual - 9))) {
-        return crearCategoria('Hs', 'flag_infantil_varonil');
+        return crearCategoria('Hs - Flag Infantil Varonil');
       }
       else if (añoNacimiento === (añoActual - 8) || 
                (añoNacimiento === (añoActual - 7) && mesNacimiento <= 6)) {
-        return crearCategoria('js', 'flag_infantil_varonil');
+        return crearCategoria('js - flag Infantil Varonil');
       }
       else if ((añoNacimiento === (añoActual - 7) && mesNacimiento >= 7) || 
                (añoNacimiento === (añoActual - 6))) {
-        return crearCategoria('Ms (NC)', 'flag_infantil_varonil');
+        return crearCategoria('Ms (NC) - Flag Infantil Varonil');
       }
     }
     // Lógica para categorías femeninas
     else if (sexo.toLowerCase() === 'mujer') {
       if (edad === 17 || edad === 16) {
-        return crearCategoria('Master Flag', 'flag_femenil');
+        return crearCategoria('Master Flag flag Femenil');
       }
       else if (edad === 15 || edad === 14) {
-        return crearCategoria('Flag Junior', 'flag_femenil');
+        return crearCategoria('Flag Junior - Flag Femenil');
       }
       else if (edad === 13 || edad === 12) {
-        return crearCategoria('Flag Juvenil', 'flag_femenil');
+        return crearCategoria('Flag Juvenil - Flag Femenil');
       }
       else if (edad === 11 || edad === 10) {
-        return crearCategoria('Flag Infantil', 'flag_femenil');
+        return crearCategoria('Flag Infantil - Flag Femenil');
       }
       else if (edad === 9 || edad === 8) {
-        return crearCategoria('Baby Flag', 'flag_femenil');
+        return crearCategoria('Baby Flag - Flag Femenil');
       }
       else if (edad === 7 || edad === 6) {
-        return crearCategoria('Mini Flag (N/C)', 'flag_femenil');
+        return crearCategoria('Mini Flag (N/C) - Flag Femenil');
       }
     }
   

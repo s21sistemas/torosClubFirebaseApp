@@ -1,0 +1,11 @@
+{
+    "expo.jsEngine": "hermes",
+    "expo.modularHeaders": {
+      "GoogleUtilities": true,
+      "FirebaseCore": true,
+      "FirebaseCoreInternal": true,
+      "FirebaseFirestore": true,
+      "FirebaseAuth": true,
+      "FirebaseStorage": true
+    }
+  }

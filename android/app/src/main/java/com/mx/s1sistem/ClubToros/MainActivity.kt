@@ -1,4 +1,4 @@
-package com.mx.s1sistem.ClubPotros
+package com.mx.s1sistem.ClubToros
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

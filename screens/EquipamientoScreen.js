@@ -106,7 +106,7 @@ const EquipamientoScreen = ({ route, navigation }) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#b51f28" />
+        <ActivityIndicator size="large" color="#ffbe00" />
         <Text style={styles.loadingText}>Cargando equipamiento...</Text>
       </View>
     );
@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 16,
-    color: '#b51f28',
+    color: '#ffbe00',
     marginBottom: 20,
     textAlign: 'center',
   },
@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
     color: '#777',
   },
   retryButton: {
-    backgroundColor: '#b51f28',
+    backgroundColor: '#ffbe00',
     paddingVertical: 12,
     paddingHorizontal: 25,
     borderRadius: 5,
@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#b51f28',
+    color: '#ffbe00',
     marginBottom: 5,
     textTransform: 'uppercase',
     textAlign: 'center',

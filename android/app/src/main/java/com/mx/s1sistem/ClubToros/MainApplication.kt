@@ -1,4 +1,4 @@
-package com.mx.s1sistem.ClubPotros
+package com.mx.s1sistem.ClubToros
 
 import android.app.Application
 import android.content.res.Configuration

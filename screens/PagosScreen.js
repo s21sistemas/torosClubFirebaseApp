@@ -264,9 +264,9 @@ const PagosScreen = ({ route, navigation }) => {
         </head>
         <body>
           <div class="header">
-            <img src="./assets/LogoPotros.jpg" 
+            <img src="./assets/LogoToros.jpg" 
                  class="logo" 
-                 alt="Logo Club Potros" />
+                 alt="Logo Club Toros" />
             <div class="title">COMPROBANTE DE PAGO</div>
             <div class="subtitle">${esPorrista ? 'Porrista' : 'Jugador'}</div>
             <div class="address"></div>
@@ -313,7 +313,7 @@ const PagosScreen = ({ route, navigation }) => {
           </div>
           
           <div class="footer">
-            Documento generado el ${new Date().toLocaleDateString()} - Club Potros © ${new Date().getFullYear()}
+            Documento generado el ${new Date().toLocaleDateString()} - Club Toros © ${new Date().getFullYear()}
           </div>
         </body>
       </html>

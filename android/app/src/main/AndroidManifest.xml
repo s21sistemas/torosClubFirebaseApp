@@ -29,6 +29,7 @@
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="com.mx.s1sistem.ClubPotros"/>
         <data android:scheme="exp+torosclub"/>
+        <data android:scheme="com.mx.s1sistem.ClubToros"/>
       </intent-filter>
     </activity>
   </application>

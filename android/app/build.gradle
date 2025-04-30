@@ -86,9 +86,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.mx.s1sistem.ClubPotros'
+    namespace 'com.mx.s1sistem.ClubToros'
     defaultConfig {
-        applicationId 'com.mx.s1sistem.ClubPotros'
+        applicationId 'com.mx.s1sistem.ClubToros'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Alert, TextInput,
   Animated, Platform, PanResponder, Linking, ActivityIndicator,
-  Image, Button, SafeAreaView, ScrollView
+  Image, Button, SafeAreaView, ScrollView, Keyboard, KeyboardAvoidingView, TouchableWithoutFeedback
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -14,8 +14,9 @@ import { getAuth } from 'firebase/auth';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { obtenerCategoria } from '../utils/obtenerCategoria';
+import { captureRef } from 'react-native-view-shot';
+
 // Configuración de Firebase
-//b51f28
 import { app } from '../firebaseConfig';
 
 const storage = getStorage(app);
@@ -28,7 +29,7 @@ const HomeScreen = ({ navigation }) => {
     apellido_p: '',
     apellido_m: '',
     sexo: '',
-    categoria:'',
+    categoria: '',
     direccion: '',
     telefono: '',
     fecha_nacimiento: new Date(),
@@ -194,13 +195,31 @@ const HomeScreen = ({ navigation }) => {
   };
 
   const captureSignature = async () => {
-    if (signatureRef.current) {
-      const signatureImage = await signatureRef.current.toDataURL();
-      return signatureImage;
+    if (!signatureRef.current || formData.firma.length === 0) {
+      return null;
     }
-    return null;
+
+    try {
+      // Para web, podemos usar directamente el SVG
+      if (Platform.OS === 'web') {
+        const svg = signatureRef.current;
+        const svgData = new XMLSerializer().serializeToString(svg);
+        return `data:image/svg+xml;base64,${btoa(svgData)}`;
+      }
+
+      // Para móvil, convertir a PNG usando react-native-view-shot
+      const uri = await captureRef(signatureRef, {
+        format: 'png',
+        quality: 1,
+        result: 'base64'
+      });
+
+      return `data:image/png;base64,${uri}`;
+    } catch (error) {
+      console.error('Error al capturar firma:', error);
+      return null;
+    }
   };
-  
 
   const handleSelectFile = async (field) => {
     try {
@@ -311,10 +330,9 @@ const HomeScreen = ({ navigation }) => {
           padecimientos: formData.padecimientos,
           peso: formData.peso,
           tipo_inscripcion: formData.tipo_inscripcion,
-          foto: fotoJugadorURL, // URL directa
-          rol_id:'4ImLOboJDFm76mHNPdeB',
+          foto: fotoJugadorURL,
+          rol_id: 'WpOj1dwyls3R7rfgVRZA',
           documentos: {
-            // URLs directas
             ine_tutor: documentosSubidos.ine_tutor || null,
             curp_jugador: documentosSubidos.curp_jugador || null,
             acta_nacimiento: documentosSubidos.acta_nacimiento || null,
@@ -334,27 +352,39 @@ const HomeScreen = ({ navigation }) => {
         const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
         const docRef = await addDoc(collection(db, coleccion), datosRegistro);
   
-        // Crear registro de pagos
-        const montoTotal = formData.tipo_inscripcion === 'porrista' ? 1500 : 2000;
-        const montoPorPago = montoTotal / 4;
+        // Obtener costos según el tipo de inscripción (solo el primer documento)
+        const costosCollection = formData.tipo_inscripcion === 'porrista' ? 'costos-porrista' : 'costos-jugador';
+        const costosQuery = collection(db, costosCollection);
+        const costosSnapshot = await getDocs(costosQuery);
         
-        const pagosData = {
-          fecha_registro: new Date().toISOString().split('T')[0],
-          jugadorId: docRef.id,
-          monto_total: montoTotal,
-          monto_total_pagado: 0,
-          monto_total_pendiente: montoTotal,
-          nombre: `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`,
-          pagos: [
-            { tipo: "Inscripción", monto: montoPorPago, estatus: "pendiente", fecha_limite: "2025/04/04", fecha_pago: null },
-            { tipo: "Coaching", monto: montoPorPago, estatus: "pendiente", fecha_pago: null },
-            { tipo: "Túnel", monto: montoPorPago, estatus: "pendiente", fecha_pago: null },
-            { tipo: "Botiquín", monto: montoPorPago, estatus: "pendiente", fecha_pago: null }
-          ]
-        };
+        if (costosSnapshot.empty) {
+          throw new Error(`No se encontraron costos configurados para ${formData.tipo_inscripcion}`);
+        }
   
-        const coleccionPagos = formData.tipo_inscripcion === 'porrista' ? 'pagos_porristas' : 'pagos_jugadores';
-        await addDoc(collection(db, coleccionPagos), pagosData);
+        // Tomamos el primer documento (único documento en la colección)
+        const costosDoc = costosSnapshot.docs[0];
+        const costosData = costosDoc.data();
+  
+        // Crear nombre completo para los pagos
+        const nombreCompleto = `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`;
+  
+        // Crear registros de pagos según el tipo de inscripción
+        if (formData.tipo_inscripcion === 'porrista') {
+          await createPagoPorrista(
+            docRef.id,
+            nombreCompleto,
+            costosData.temporadaId,
+            costosData
+          );
+        } else {
+          await createPagoJugador(
+            docRef.id,
+            nombreCompleto,
+            costosData.temporadaId,
+            formData.categoria,
+            costosData
+          );
+        }
   
         Alert.alert('Éxito', 'Registro completado correctamente');
         navigation.navigate('MainTabs');
@@ -367,6 +397,134 @@ const HomeScreen = ({ navigation }) => {
       }
     }
   };
+  
+  // Función para crear pagos de jugador
+  const createPagoJugador = async (
+    jugadorId,
+    nombreJugador,
+    temporadaId,
+    categoria,
+    costosData
+  ) => {
+    const actuallyDate = new Date();
+    const fechaLimite = new Date();
+    fechaLimite.setDate(fechaLimite.getDate() + 7); // 1 semana después
+  
+    // Convertir los valores de cadena a números
+    const parseCost = (value) => parseInt(value || '0', 10);
+    
+    const inscripcion = parseCost(costosData.inscripcion);
+    const equipamiento = parseCost(costosData.equipamiento);
+    const pesaje = parseCost(costosData.pesaje);
+    const total = inscripcion + equipamiento + pesaje;
+  
+    const pagosIniciales = {
+      jugadorId,
+      nombre: nombreJugador,
+      temporadaId,
+      categoria,
+      pagos: [
+        {
+          tipo: 'Inscripción',
+          beca: '0',
+          descuento: '0',
+          estatus: 'pendiente',
+          fecha_pago: null,
+          submonto: 0,
+          monto: inscripcion,
+          prorroga: false,
+          fecha_limite: fechaLimite.toISOString().split('T')[0],
+          metodo_pago: null,
+          abono: 'NO',
+          abonos: [],
+          total_abonado: 0
+        },
+        {
+          tipo: 'Equipamiento',
+          estatus: 'pendiente',
+          fecha_pago: null,
+          fecha_limite: null,
+          monto: equipamiento,
+          metodo_pago: null,
+          abono: 'NO',
+          abonos: [],
+          total_abonado: 0
+        },
+        {
+          tipo: 'Pesaje',
+          estatus: 'pendiente',
+          fecha_pago: null,
+          monto: pesaje,
+          metodo_pago: null,
+          abono: 'NO',
+          abonos: [],
+          total_abonado: 0
+        }
+      ],
+      monto_total_pagado: 0,
+      monto_total_pendiente: total,
+      monto_total: total,
+      fecha_registro: actuallyDate.toISOString().split('T')[0]
+    };
+  
+    await addDoc(collection(db, 'pagos_jugadores'), pagosIniciales);
+  };
+  
+  // Función para crear pagos de porrista
+  const createPagoPorrista = async (
+    porristaId,
+    nombrePorrista,
+    temporadaId,
+    costosData
+  ) => {
+    const actuallyDate = new Date();
+    const fechaLimite = new Date();
+    fechaLimite.setDate(fechaLimite.getDate() + 7); // 1 semana después
+  
+    // Convertir los valores de cadena a números
+    const parseCost = (value) => parseInt(value || '0', 10);
+    
+    const inscripcion = parseCost(costosData.inscripcion);
+    const coaching = parseCost(costosData.coaching);
+    const total = inscripcion + coaching;
+  
+    const pagosIniciales = {
+      porristaId,
+      nombre: nombrePorrista,
+      temporadaId,
+      pagos: [
+        {
+          tipo: 'Inscripción',
+          estatus: 'pendiente',
+          fecha_pago: null,
+          monto: inscripcion,
+          metodo_pago: null,
+          abono: 'NO',
+          abonos: [],
+          total_abonado: 0,
+          fecha_limite: fechaLimite.toISOString().split('T')[0]
+        },
+        {
+          tipo: 'Coaching',
+          estatus: 'pendiente',
+          fecha_pago: null,
+          monto: coaching,
+          metodo_pago: null,
+          abono: 'NO',
+          abonos: [],
+          total_abonado: 0,
+          fecha_limite: null
+        }
+      ],
+      monto_total_pagado: 0,
+      monto_total_pendiente: total,
+      monto_total: total,
+      fecha_registro: actuallyDate.toISOString().split('T')[0]
+    };
+  
+    await addDoc(collection(db, 'pagos_porristas'), pagosIniciales);
+  };
+
   const renderForm = () => {
     switch (steps[currentStep]) {
       case 'GeneroForm':
@@ -572,89 +730,91 @@ const TipoInscripcionForm = ({ formData, setFormData, errors, onNext, navigation
   };
 
   return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Tipo de Inscripción</Text>
-      <Picker
-        selectedValue={formData.tipo_inscripcion}
-        onValueChange={handleTipoInscripcionChange}
-        style={styles.picker}
-      >
-        {tipoInscripcionOptions.map((option, index) => (
-          <Picker.Item key={index} label={option.label} value={option.value} />
-        ))}
-      </Picker>
-      {errors.tipo_inscripcion && <Text style={styles.errorText}>{errors.tipo_inscripcion}</Text>}
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <View style={styles.formContainer}>
+        <Text style={styles.title}>Tipo de Inscripción</Text>
+        <Picker
+          selectedValue={formData.tipo_inscripcion}
+          onValueChange={handleTipoInscripcionChange}
+          style={styles.picker}
+        >
+          {tipoInscripcionOptions.map((option, index) => (
+            <Picker.Item key={index} label={option.label} value={option.value} />
+          ))}
+        </Picker>
+        {errors.tipo_inscripcion && <Text style={styles.errorText}>{errors.tipo_inscripcion}</Text>}
 
-      {formData.tipo_inscripcion === 'reinscripcion' && (
-        <View style={styles.reinscripcionContainer}>
-          <Text style={styles.subtitle}>Buscar jugador/porrista para reinscribir</Text>
-          
-          <TextInput
-            style={styles.input}
-            placeholder="Ingresa CURP (18 caracteres) o MFL (6 dígitos)"
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-            maxLength={18}
-            autoCapitalize="characters"
-          />
-          
-          {searchError && <Text style={styles.errorText}>{searchError}</Text>}
-          
+        {formData.tipo_inscripcion === 'reinscripcion' && (
+          <View style={styles.reinscripcionContainer}>
+            <Text style={styles.subtitle}>Buscar jugador/porrista para reinscribir</Text>
+            
+            <TextInput
+              style={styles.input}
+              placeholder="Ingresa CURP (18 caracteres) o MFL (6 dígitos)"
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+              maxLength={18}
+              autoCapitalize="characters"
+            />
+            
+            {searchError && <Text style={styles.errorText}>{searchError}</Text>}
+            
+            <TouchableOpacity 
+              style={styles.button} 
+              onPress={searchPlayer}
+              disabled={loadingSearch}
+            >
+              {loadingSearch ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Buscar</Text>
+              )}
+            </TouchableOpacity>
+
+            {foundPlayer && (
+              <View style={styles.playerInfoContainer}>
+                <Text style={styles.playerInfoTitle}>Jugador encontrado:</Text>
+                
+                {foundPlayer.foto && (
+                  <Image 
+                    source={{ uri: foundPlayer.foto }} 
+                    style={styles.playerImage}
+                  />
+                )}
+                
+                <Text style={styles.playerInfoText}>
+                  Nombre: {foundPlayer.nombre} {foundPlayer.apellido_p} {foundPlayer.apellido_m}
+                </Text>
+                <Text style={styles.playerInfoText}>CURP: {foundPlayer.curp}</Text>
+                <Text style={styles.playerInfoText}>MFL: {foundPlayer.numero_mfl || 'N/A'}</Text>
+                <Text style={styles.playerInfoText}>Estado actual: {foundPlayer.activo}</Text>
+                
+                <TouchableOpacity 
+                  style={[styles.button, styles.reinscribirButton]}
+                  onPress={reinscribirPlayer}
+                  disabled={reinscribiendo}
+                >
+                  {reinscribiendo ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.buttonText}>Reinscribir</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
+        {formData.tipo_inscripcion !== 'reinscripcion' && (
           <TouchableOpacity 
             style={styles.button} 
-            onPress={searchPlayer}
-            disabled={loadingSearch}
+            onPress={onNext}
           >
-            {loadingSearch ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Buscar</Text>
-            )}
+            <Text style={styles.buttonText}>Continuar</Text>
           </TouchableOpacity>
-
-          {foundPlayer && (
-            <View style={styles.playerInfoContainer}>
-              <Text style={styles.playerInfoTitle}>Jugador encontrado:</Text>
-              
-              {foundPlayer.foto && (
-                <Image 
-                  source={{ uri: foundPlayer.foto }} 
-                  style={styles.playerImage}
-                />
-              )}
-              
-              <Text style={styles.playerInfoText}>
-                Nombre: {foundPlayer.nombre} {foundPlayer.apellido_p} {foundPlayer.apellido_m}
-              </Text>
-              <Text style={styles.playerInfoText}>CURP: {foundPlayer.curp}</Text>
-              <Text style={styles.playerInfoText}>MFL: {foundPlayer.numero_mfl || 'N/A'}</Text>
-              <Text style={styles.playerInfoText}>Estado actual: {foundPlayer.activo}</Text>
-              
-              <TouchableOpacity 
-                style={[styles.button, styles.reinscribirButton]}
-                onPress={reinscribirPlayer}
-                disabled={reinscribiendo}
-              >
-                {reinscribiendo ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.buttonText}>Reinscribir</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      )}
-
-      {formData.tipo_inscripcion !== 'reinscripcion' && (
-        <TouchableOpacity 
-          style={styles.button} 
-          onPress={onNext}
-        >
-          <Text style={styles.buttonText}>Continuar</Text>
-        </TouchableOpacity>
-      )}
-    </View>
+        )}
+      </View>
+    </TouchableWithoutFeedback>
   );
 };
 
@@ -716,189 +876,217 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
   };
 
   return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Datos Personales- Jugador(a)</Text>
-      
-      <TextInput
-        style={styles.input}
-        placeholder="Nombre del jugador(a)"
-        value={formData.nombre}
-        onChangeText={(text) => setFormData({ ...formData, nombre: text })}
-      />
-      {errors.nombre && <Text style={styles.errorText}>{errors.nombre}</Text>}
-
-      <TextInput
-        style={styles.input}
-        placeholder="Apellido Paterno"
-        value={formData.apellido_p}
-        onChangeText={(text) => setFormData({ ...formData, apellido_p: text })}
-      />
-      {errors.apellido_p && <Text style={styles.errorText}>{errors.apellido_p}</Text>}
-
-      <TextInput
-        style={styles.input}
-        placeholder="Apellido Materno"
-        value={formData.apellido_m}
-        onChangeText={(text) => setFormData({ ...formData, apellido_m: text })}
-      />
-      {errors.apellido_m && <Text style={styles.errorText}>{errors.apellido_m}</Text>}
-
-      <Text style={styles.label}>Fecha de Nacimiento:</Text>
-      
-      {Platform.OS !== 'web' ? (
-        <>
-          <Button 
-            title={date ? formatDate(date) : "Seleccionar fecha"} 
-            onPress={() => setShowPicker(true)} 
-          />
-          {showPicker && (
-            <DateTimePicker
-              value={date || new Date()}
-              mode="date"
-              display="default"
-              onChange={onChangeMobile}
-              maximumDate={new Date()}
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={styles.formContainer}
+      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ScrollView contentContainerStyle={styles.scrollContainer}>
+          <View style={styles.formContainer}>
+            <Text style={styles.title}>Datos Personales- Jugador(a)</Text>
+            
+            <TextInput
+              style={styles.input}
+              placeholder="Nombre del jugador(a)"
+              value={formData.nombre}
+              onChangeText={(text) => setFormData({ ...formData, nombre: text })}
             />
-          )}
-        </>
-      ) : (
-        <>
-          <input
-            type="date"
-            value={dateInputValue}
-            onChange={handleWebDateChange}
-            style={styles.webInput}
-            max={new Date().toISOString().split('T')[0]}
-          />
-          {errors.fecha_nacimiento && (
-            <Text style={styles.errorText}>{errors.fecha_nacimiento}</Text>
-          )}
-        </>
-      )}
+            {errors.nombre && <Text style={styles.errorText}>{errors.nombre}</Text>}
 
-      <Text style={styles.selectedDate}>
-        Fecha seleccionada: {formatDate(date)}
-      </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Apellido Paterno"
+              value={formData.apellido_p}
+              onChangeText={(text) => setFormData({ ...formData, apellido_p: text })}
+            />
+            {errors.apellido_p && <Text style={styles.errorText}>{errors.apellido_p}</Text>}
 
-      {/* Mostrar categoría asignada */}
-      {formData.categoria && (
-        <View style={styles.categoriaContainer}>
-          <Text style={styles.categoriaText}>
-            Categoría asignada: <Text style={styles.categoriaValue}>{formData.categoria}</Text>
-          </Text>
-          {formData.categoria === 'NC' && (
-            <Text style={styles.categoriaNota}>*El jugador está fuera de los rangos de edad (2008-2020)</Text>
-          )}
-        </View>
-      )}
+            <TextInput
+              style={styles.input}
+              placeholder="Apellido Materno"
+              value={formData.apellido_m}
+              onChangeText={(text) => setFormData({ ...formData, apellido_m: text })}
+            />
+            {errors.apellido_m && <Text style={styles.errorText}>{errors.apellido_m}</Text>}
 
-      <TextInput
-        style={styles.input}
-        placeholder="Lugar de Nacimiento"
-        value={formData.lugar_nacimiento}
-        onChangeText={(text) => setFormData({ ...formData, lugar_nacimiento: text })}
-      />
-      {errors.lugar_nacimiento && <Text style={styles.errorText}>{errors.lugar_nacimiento}</Text>}
+            <Text style={styles.label}>Fecha de Nacimiento:</Text>
+            
+            {Platform.OS !== 'web' ? (
+              <>
+                <Button 
+                  title={date ? formatDate(date) : "Seleccionar fecha"} 
+                  onPress={() => setShowPicker(true)} 
+                />
+                {showPicker && (
+                  <DateTimePicker
+                    value={date || new Date()}
+                    mode="date"
+                    display="default"
+                    onChange={onChangeMobile}
+                    maximumDate={new Date()}
+                  />
+                )}
+              </>
+            ) : (
+              <>
+                <input
+                  type="date"
+                  value={dateInputValue}
+                  onChange={handleWebDateChange}
+                  style={styles.webInput}
+                  max={new Date().toISOString().split('T')[0]}
+                />
+                {errors.fecha_nacimiento && (
+                  <Text style={styles.errorText}>{errors.fecha_nacimiento}</Text>
+                )}
+              </>
+            )}
 
-      <TextInput
-        style={styles.input}
-        placeholder="CURP (EN MAYUSCULAS)"
-        value={formData.curp}
-        onChangeText={(text) => setFormData({ ...formData, curp: text.toUpperCase() })}
-        maxLength={18}
-      />
-      {errors.curp && <Text style={styles.errorText}>{errors.curp}</Text>}
+            <Text style={styles.selectedDate}>
+              Fecha seleccionada: {formatDate(date)}
+            </Text>
 
-      <TouchableOpacity 
-        onPress={() => Linking.openURL('https://www.gob.mx/curp/')} 
-        style={styles.linkContainer}
-      >
-        <Text style={styles.linkText}>¿No sabes tu CURP? Consúltala aquí</Text>
-      </TouchableOpacity>
+            {/* Mostrar categoría asignada */}
+            {formData.categoria && (
+              <View style={styles.categoriaContainer}>
+                <Text style={styles.categoriaText}>
+                  Categoría asignada: <Text style={styles.categoriaValue}>{formData.categoria}</Text>
+                </Text>
+                {formData.categoria === 'NC' && (
+                  <Text style={styles.categoriaNota}>*El jugador está fuera de los rangos de edad (2008-2020)</Text>
+                )}
+              </View>
+            )}
 
-      <TouchableOpacity style={styles.button} onPress={onNext}>
-        <Text style={styles.buttonText}>Continuar</Text>
-      </TouchableOpacity>
-    </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Lugar de Nacimiento"
+              value={formData.lugar_nacimiento}
+              onChangeText={(text) => setFormData({ ...formData, lugar_nacimiento: text })}
+            />
+            {errors.lugar_nacimiento && <Text style={styles.errorText}>{errors.lugar_nacimiento}</Text>}
+
+            <TextInput
+              style={styles.input}
+              placeholder="CURP (EN MAYUSCULAS)"
+              value={formData.curp}
+              onChangeText={(text) => setFormData({ ...formData, curp: text.toUpperCase() })}
+              maxLength={18}
+            />
+            {errors.curp && <Text style={styles.errorText}>{errors.curp}</Text>}
+
+            <TouchableOpacity 
+              onPress={() => Linking.openURL('https://www.gob.mx/curp/')} 
+              style={styles.linkContainer}
+            >
+              <Text style={styles.linkText}>¿No sabes tu CURP? Consúltala aquí</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.button} onPress={onNext}>
+              <Text style={styles.buttonText}>Continuar</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
 // Componente DatosContactoForm
 const DatosContactoForm = ({ formData, setFormData, errors, onNext }) => {
   return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Datos de Contacto</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Dirección"
-        value={formData.direccion}
-        onChangeText={(text) => setFormData({ ...formData, direccion: text })}
-      />
-      {errors.direccion && <Text style={styles.errorText}>{errors.direccion}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Teléfono"
-        value={formData.telefono}
-        onChangeText={(text) => setFormData({ ...formData, telefono: text })}
-        keyboardType="phone-pad"
-      />
-      {errors.telefono && <Text style={styles.errorText}>{errors.telefono}</Text>}
-      <TouchableOpacity style={styles.button} onPress={onNext}>
-        <Text style={styles.buttonText}>Continuar</Text>
-      </TouchableOpacity>
-    </View>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={styles.formContainer}
+      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.formContainer}>
+          <Text style={styles.title}>Datos de Contacto</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Dirección"
+            value={formData.direccion}
+            onChangeText={(text) => setFormData({ ...formData, direccion: text })}
+          />
+          {errors.direccion && <Text style={styles.errorText}>{errors.direccion}</Text>}
+          <TextInput
+            style={styles.input}
+            placeholder="Teléfono"
+            value={formData.telefono}
+            onChangeText={(text) => setFormData({ ...formData, telefono: text })}
+            keyboardType="phone-pad"
+          />
+          {errors.telefono && <Text style={styles.errorText}>{errors.telefono}</Text>}
+          <TouchableOpacity style={styles.button} onPress={onNext}>
+            <Text style={styles.buttonText}>Continuar</Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
 // Componente DatosEscolaresMedicosForm
 const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) => {
   return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Datos Escolares y Médicos</Text>
-      <Picker
-        selectedValue={formData.grado_escolar}
-        onValueChange={(itemValue) => setFormData({ ...formData, grado_escolar: itemValue })}
-        style={styles.picker}
-      >
-        <Picker.Item label="Selecciona el grado escolar" value="" />
-        <Picker.Item label="Primaria" value="primaria" />
-        <Picker.Item label="Secundaria" value="secundaria" />
-        <Picker.Item label="Preparatoria" value="preparatoria" />
-      </Picker>
-      {errors.grado_escolar && <Text style={styles.errorText}>{errors.grado_escolar}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Nombre de la Escuela"
-        value={formData.nombre_escuela}
-        onChangeText={(text) => setFormData({ ...formData, nombre_escuela: text })}
-      />
-      {errors.nombre_escuela && <Text style={styles.errorText}>{errors.nombre_escuela}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Alergias"
-        value={formData.alergias}
-        onChangeText={(text) => setFormData({ ...formData, alergias: text })}
-      />
-      {errors.alergias && <Text style={styles.errorText}>{errors.alergias}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Padecimientos"
-        value={formData.padecimientos}
-        onChangeText={(text) => setFormData({ ...formData, padecimientos: text })}
-      />
-      {errors.padecimientos && <Text style={styles.errorText}>{errors.padecimientos}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Peso (kg)"
-        value={formData.peso}
-        onChangeText={(text) => setFormData({ ...formData, peso: text })}
-        keyboardType="numeric"
-      />
-      {errors.peso && <Text style={styles.errorText}>{errors.peso}</Text>}
-      <TouchableOpacity style={styles.button} onPress={onNext}>
-        <Text style={styles.buttonText}>Continuar</Text>
-      </TouchableOpacity>
-    </View>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={styles.formContainer}
+      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ScrollView contentContainerStyle={styles.scrollContainer}>
+          <View style={styles.formContainer}>
+            <Text style={styles.title}>Datos Escolares y Médicos</Text>
+            <Picker
+              selectedValue={formData.grado_escolar}
+              onValueChange={(itemValue) => setFormData({ ...formData, grado_escolar: itemValue })}
+              style={styles.picker}
+            >
+              <Picker.Item label="Selecciona el grado escolar" value="" />
+              <Picker.Item label="Primaria" value="primaria" />
+              <Picker.Item label="Secundaria" value="secundaria" />
+              <Picker.Item label="Preparatoria" value="preparatoria" />
+            </Picker>
+            {errors.grado_escolar && <Text style={styles.errorText}>{errors.grado_escolar}</Text>}
+            <TextInput
+              style={styles.input}
+              placeholder="Nombre de la Escuela"
+              value={formData.nombre_escuela}
+              onChangeText={(text) => setFormData({ ...formData, nombre_escuela: text })}
+            />
+            {errors.nombre_escuela && <Text style={styles.errorText}>{errors.nombre_escuela}</Text>}
+            <TextInput
+              style={styles.input}
+              placeholder="Alergias"
+              value={formData.alergias}
+              onChangeText={(text) => setFormData({ ...formData, alergias: text })}
+            />
+            {errors.alergias && <Text style={styles.errorText}>{errors.alergias}</Text>}
+            <TextInput
+              style={styles.input}
+              placeholder="Padecimientos"
+              value={formData.padecimientos}
+              onChangeText={(text) => setFormData({ ...formData, padecimientos: text })}
+            />
+            {errors.padecimientos && <Text style={styles.errorText}>{errors.padecimientos}</Text>}
+            <TextInput
+              style={styles.input}
+              placeholder="Peso (kg)"
+              value={formData.peso}
+              onChangeText={(text) => setFormData({ ...formData, peso: text })}
+              keyboardType="numeric"
+            />
+            {errors.peso && <Text style={styles.errorText}>{errors.peso}</Text>}
+            <TouchableOpacity style={styles.button} onPress={onNext}>
+              <Text style={styles.buttonText}>Continuar</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -915,40 +1103,48 @@ const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
   };
 
   return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Datos de Transferencia</Text>
-      
-      <TextInput
-        style={styles.input}
-        placeholder="Club de Origen"
-        value={formData.transferencia.club_anterior}
-        onChangeText={(text) => handleChange('club_anterior', text)}
-      />
-      
-      <TextInput
-        style={styles.input}
-        placeholder="Temporadas Jugadas"
-        value={formData.transferencia.temporadas_jugadas}
-        onChangeText={(text) => handleChange('temporadas_jugadas', text)}
-        keyboardType="numeric"
-      />
-      
-      <Picker
-        selectedValue={formData.transferencia.motivo_transferencia}
-        onValueChange={(itemValue) => handleChange('motivo_transferencia', itemValue)}
-        style={styles.picker}
-      >
-        <Picker.Item label="Selecciona un motivo de transferencia" value="" />
-        <Picker.Item label="Préstamo" value="prestamo" />
-        <Picker.Item label="Cambio de domicilio" value="cambio_domicilio" />
-        <Picker.Item label="Descanso" value="descanso" />
-        <Picker.Item label="Transferencia definitiva" value="transferencia_definitiva" />
-      </Picker>
-      
-      <TouchableOpacity style={styles.button} onPress={onNext}>
-        <Text style={styles.buttonText}>Continuar</Text>
-      </TouchableOpacity>
-    </View>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={styles.formContainer}
+      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.formContainer}>
+          <Text style={styles.title}>Datos de Transferencia</Text>
+          
+          <TextInput
+            style={styles.input}
+            placeholder="Club de Origen"
+            value={formData.transferencia.club_anterior}
+            onChangeText={(text) => handleChange('club_anterior', text)}
+          />
+          
+          <TextInput
+            style={styles.input}
+            placeholder="Temporadas Jugadas"
+            value={formData.transferencia.temporadas_jugadas}
+            onChangeText={(text) => handleChange('temporadas_jugadas', text)}
+            keyboardType="numeric"
+          />
+          
+          <Picker
+            selectedValue={formData.transferencia.motivo_transferencia}
+            onValueChange={(itemValue) => handleChange('motivo_transferencia', itemValue)}
+            style={styles.picker}
+          >
+            <Picker.Item label="Selecciona un motivo de transferencia" value="" />
+            <Picker.Item label="Préstamo" value="prestamo" />
+            <Picker.Item label="Cambio de domicilio" value="cambio_domicilio" />
+            <Picker.Item label="Descanso" value="descanso" />
+            <Picker.Item label="Transferencia definitiva" value="transferencia_definitiva" />
+          </Picker>
+          
+          <TouchableOpacity style={styles.button} onPress={onNext}>
+            <Text style={styles.buttonText}>Continuar</Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -959,6 +1155,7 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(null);
   const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     (async () => {
@@ -968,6 +1165,11 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
       setHasGalleryPermission(galleryStatus.status === 'granted');
     })();
   }, []);
+
+  const handleLayout = (event) => {
+    const { width, height } = event.nativeEvent.layout;
+    setDimensions({ width, height });
+  };
 
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -988,6 +1190,9 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
       setCurrentPath([]);
       setFormData(prev => ({ ...prev, firma: [...prev.firma, ...currentPath] }));
     },
+    onPanResponderTerminate: () => {
+      setIsDrawing(false);
+    }
   });
 
   const getPathData = (path) => {
@@ -1049,55 +1254,82 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
   };
 
   return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Firma y Foto</Text>
-      
-      <Text style={styles.sectionTitle}>Firma:</Text>
-      <View style={styles.signatureContainer} {...panResponder.panHandlers}>
-        <Svg style={styles.canvas} ref={signatureRef}>
-          {paths.map((path, index) => (
-            <Path
-              key={index}
-              d={getPathData(path)}
-              stroke="black"
-              strokeWidth={3}
-              fill="none"
-            />
-          ))}
-          <Path
-            d={getPathData(currentPath)}
-            stroke="black"
-            strokeWidth={3}
-            fill="none"
-          />
-        </Svg>
-      </View>
-      <TouchableOpacity style={styles.secondaryButton} onPress={clearCanvas}>
-        <Text style={styles.secondaryButtonText}>Limpiar Firma</Text>
-      </TouchableOpacity>
-      {errors.firma && <Text style={styles.errorText}>{errors.firma}</Text>}
-      
-      <Text style={styles.sectionTitle}>Foto del Jugador:</Text>
-      {formData.foto_jugador && (
-        <Image
-          source={{ uri: formData.foto_jugador }}
-          style={styles.imagePreview}
-        />
-      )}
-      <View style={styles.photoButtonsContainer}>
-        <TouchableOpacity style={styles.secondaryButton} onPress={handleTakePhoto}>
-          <Text style={styles.secondaryButtonText}>Tomar Foto</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.secondaryButton} onPress={handleSelectFoto}>
-          <Text style={styles.secondaryButtonText}>Seleccionar de Galería</Text>
-        </TouchableOpacity>
-      </View>
-      {errors.foto_jugador && <Text style={styles.errorText}>{errors.foto_jugador}</Text>}
-      
-      <TouchableOpacity style={styles.button} onPress={onNext}>
-        <Text style={styles.buttonText}>Continuar</Text>
-      </TouchableOpacity>
-    </View>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={styles.formContainer}
+      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
+    >
+      <ScrollView 
+        contentContainerStyle={styles.scrollContainer}
+        scrollEnabled={!isDrawing}
+        keyboardShouldPersistTaps="handled"
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.formContainer}>
+            <Text style={styles.title}>Firma y Foto</Text>
+            
+            <Text style={styles.sectionTitle}>Firma:</Text>
+            <View 
+              style={styles.signatureContainer} 
+              {...panResponder.panHandlers}
+              onLayout={handleLayout}
+            >
+              <Svg 
+                style={styles.canvas} 
+                ref={signatureRef}
+                width={dimensions.width}
+                height={dimensions.height}
+              >
+                {paths.map((path, index) => (
+                  <Path
+                    key={`path-${index}`}
+                    d={getPathData(path)}
+                    stroke="black"
+                    strokeWidth={3}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ))}
+                <Path
+                  d={getPathData(currentPath)}
+                  stroke="black"
+                  strokeWidth={3}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </Svg>
+            </View>
+            <TouchableOpacity style={styles.secondaryButton} onPress={clearCanvas}>
+              <Text style={styles.secondaryButtonText}>Limpiar Firma</Text>
+            </TouchableOpacity>
+            {errors.firma && <Text style={styles.errorText}>{errors.firma}</Text>}
+            
+            <Text style={styles.sectionTitle}>Foto del Jugador:</Text>
+            {formData.foto_jugador && (
+              <Image
+                source={{ uri: formData.foto_jugador }}
+                style={styles.imagePreview}
+              />
+            )}
+            <View style={styles.photoButtonsContainer}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={handleTakePhoto}>
+                <Text style={styles.secondaryButtonText}>Tomar Foto</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.secondaryButton} onPress={handleSelectFoto}>
+                <Text style={styles.secondaryButtonText}>Seleccionar de Galería</Text>
+              </TouchableOpacity>
+            </View>
+            {errors.foto_jugador && <Text style={styles.errorText}>{errors.foto_jugador}</Text>}
+            
+            <TouchableOpacity style={styles.button} onPress={onNext}>
+              <Text style={styles.buttonText}>Continuar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableWithoutFeedback>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -1130,71 +1362,79 @@ const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, cu
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContainer}>
-      <View style={styles.formContainer}>
-        <Text style={styles.title}>Documentación Requerida</Text>
-        
-        {['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'].map((field) => (
-          <View key={field} style={styles.formGroup}>
-            <Text style={styles.label}>
-              {field === 'ine_tutor' && 'INE del Tutor'}
-              {field === 'curp_jugador' && 'CURP del Jugador'}
-              {field === 'acta_nacimiento' && 'Acta de Nacimiento'}
-              {field === 'comprobante_domicilio' && 'Comprobante de Domicilio'}
-            </Text>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={styles.formContainer}
+      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ScrollView contentContainerStyle={styles.scrollContainer}>
+          <View style={styles.formContainer}>
+            <Text style={styles.title}>Documentación Requerida</Text>
             
+            {['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'].map((field) => (
+              <View key={field} style={styles.formGroup}>
+                <Text style={styles.label}>
+                  {field === 'ine_tutor' && 'INE del Tutor'}
+                  {field === 'curp_jugador' && 'CURP del Jugador'}
+                  {field === 'acta_nacimiento' && 'Acta de Nacimiento'}
+                  {field === 'comprobante_domicilio' && 'Comprobante de Domicilio'}
+                </Text>
+                
+                <TouchableOpacity 
+                  style={styles.uploadButton}
+                  onPress={() => handleSelectFile(field)}
+                  disabled={!!currentUpload}
+                >
+                  <Text style={styles.buttonText}>
+                    {formData.documentos[field]?.uri ? 'Reemplazar archivo' : 'Seleccionar archivo'}
+                  </Text>
+                </TouchableOpacity>
+                
+                {renderFileInfo(field)}
+              </View>
+            ))}
+
+            {/* Sección de aceptación del reglamento */}
+            <View style={styles.regulationContainer}>
+              <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
+              
+              <TouchableOpacity 
+                onPress={() => Linking.openURL('https://firebasestorage.googleapis.com/v0/b/clubpotros-f28a5.firebasestorage.app/o/logos%2FReglamentoPotros.pdf?alt=media&token=5c87023d-c8b3-42be-b0d9-5b167a7ead0c')} 
+                style={styles.regulationLink}
+              >
+                <Text style={styles.regulationLinkText}>Descargue, lea y firme el reglamento</Text>
+              </TouchableOpacity>
+              
+              <View style={styles.checkboxContainer}>
+                <TouchableOpacity 
+                  style={[styles.checkbox, acceptedRegulation && styles.checkboxChecked]}
+                  onPress={() => setAcceptedRegulation(!acceptedRegulation)}
+                >
+                  {acceptedRegulation && <Text style={styles.checkmark}>✓</Text>}
+                </TouchableOpacity>
+                <Text style={styles.regulationText}>
+                  Confirmo que he leído y acepto el reglamento del equipo
+                </Text>
+              </View>
+            </View>
+
             <TouchableOpacity 
-              style={styles.uploadButton}
-              onPress={() => handleSelectFile(field)}
-              disabled={!!currentUpload}
+              style={[
+                styles.submitButton,
+                (!acceptedRegulation || currentUpload) && styles.disabledButton
+              ]} 
+              onPress={onSubmit}
+              disabled={!acceptedRegulation || !!currentUpload}
             >
-              <Text style={styles.buttonText}>
-                {formData.documentos[field]?.uri ? 'Reemplazar archivo' : 'Seleccionar archivo'}
+              <Text style={styles.submitButtonText}>
+                {currentUpload ? 'Subiendo archivos...' : 'Finalizar Registro'}
               </Text>
             </TouchableOpacity>
-            
-            {renderFileInfo(field)}
           </View>
-        ))}
-
-        {/* Sección de aceptación del reglamento */}
-        <View style={styles.regulationContainer}>
-          <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
-          
-          <TouchableOpacity 
-            onPress={() => Linking.openURL('https://ejemplo.com/reglamento.pdf')} 
-            style={styles.regulationLink}
-          >
-            <Text style={styles.regulationLinkText}>Descargue, lea y firme el reglamento</Text>
-          </TouchableOpacity>
-          
-          <View style={styles.checkboxContainer}>
-            <TouchableOpacity 
-              style={[styles.checkbox, acceptedRegulation && styles.checkboxChecked]}
-              onPress={() => setAcceptedRegulation(!acceptedRegulation)}
-            >
-              {acceptedRegulation && <Text style={styles.checkmark}>✓</Text>}
-            </TouchableOpacity>
-            <Text style={styles.regulationText}>
-              Confirmo que he leído y acepto el reglamento del equipo
-            </Text>
-          </View>
-        </View>
-
-        <TouchableOpacity 
-          style={[
-            styles.submitButton,
-            (!acceptedRegulation || currentUpload) && styles.disabledButton
-          ]} 
-          onPress={onSubmit}
-          disabled={!acceptedRegulation || !!currentUpload}
-        >
-          <Text style={styles.submitButtonText}>
-            {currentUpload ? 'Subiendo archivos...' : 'Finalizar Registro'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -1202,7 +1442,7 @@ const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, cu
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop:35,
+    paddingTop: 35,
     backgroundColor: '#f5f5f5',
   },
   scrollContainer: {
@@ -1212,7 +1452,7 @@ const styles = StyleSheet.create({
   formContainer: {
     backgroundColor: '#fff',
     borderRadius: 10,
-    padding: 20,
+    padding: 10,
     marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1250,7 +1490,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   button: {
-    backgroundColor: '#b51f28',
+    backgroundColor: '#ffbe00',
     padding: 15,
     borderRadius: 10,
     alignItems: 'center',
@@ -1268,14 +1508,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: 10,
     borderWidth: 1,
-    borderColor: '#b51f28',
+    borderColor: '#ffbe00',
   },
   secondaryButtonText: {
     color: '#333',
     fontWeight: '500',
   },
   submitButton: {
-    backgroundColor: '#b51f28',
+    backgroundColor: '#ffbe00',
     padding: 15,
     borderRadius: 5,
     alignItems: 'center',
@@ -1295,7 +1535,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 20,
     left: 20,
-    backgroundColor: '#b51f28',
+    backgroundColor: '#ffbe00',
     padding: 15,
     borderRadius: 5,
   },
@@ -1309,6 +1549,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#000',
     marginBottom: 10,
+    backgroundColor: 'white',
   },
   canvas: {
     flex: 1,
@@ -1401,7 +1642,7 @@ const styles = StyleSheet.create({
     color: '#444',
   },
   uploadButton: {
-    backgroundColor: '#b51f28',
+    backgroundColor: '#ffbe00',
     padding: 12,
     borderRadius: 6,
     alignItems: 'center',
@@ -1440,7 +1681,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   disabledButton: {
-    backgroundColor: '#b51f28',
+    backgroundColor: '#ffbe00',
   },
   webInput: {
     borderWidth: 1,

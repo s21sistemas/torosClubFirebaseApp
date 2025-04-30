@@ -2,11 +2,11 @@ import withFixedFirebaseModularHeaders from "./expo-plugins/withFixedFirebaseMod
 
 export default {
   expo: {
-    name: "ClubPotros",
+    name: "ClubToros",
     slug: "TorosClub",
     version: "1.0.0",
     orientation: "portrait",
-    icon: "./assets/logoPotros.jpg",
+    icon: "./assets/logoToros.jpg",
     userInterfaceStyle: "light",
     newArchEnabled: true,
     permissions: [
@@ -14,7 +14,7 @@ export default {
       "MEDIA_LIBRARY"
     ],
     splash: {
-      image: "./assets/logoPotros.jpg",
+      image: "./assets/logoToros.jpg",
       resizeMode: "contain",
       backgroundColor: "#ffffff"
     },
@@ -27,8 +27,8 @@ export default {
     ],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.mx.s1sistem.ClubPotros",
-      icon: "./assets/logoPotros.jpg",
+      bundleIdentifier: "com.mx.s1sistem.ClubToros",
+      icon: "./assets/logoToros.jpg",
       buildNumber: "1.0.0",
       usesAppleSignIn: true,
       config: {
@@ -41,26 +41,26 @@ export default {
       }
     },
     android: {
-      package: "com.mx.s1sistem.ClubPotros",
+      package: "com.mx.s1sistem.ClubToros",
       adaptiveIcon: {
-        foregroundImage: "./assets/potrosIcon.png",
+        foregroundImage: "./assets/torosIcon.png",
         backgroundColor: "#ffffff"
       },
-      icon: "./assets/logoPotros.jpg",
+      icon: "./assets/logoToros.jpg",
       permissions: [
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT"
       ]
     },
     web: {
-      favicon: "./assets/favicon.png"
+      favicon: "./assets/torosIcon.png"
     },
     extra: {
       eas: {
         projectId: "940bd2e2-f080-48f0-9ef7-9723472315f9"
       }
     },
-    owner: "vicyoshioka",
+    owner: "s21sistem",
     plugins: [
       "expo-signature",
       withFixedFirebaseModularHeaders // <- referencia directa al plugin

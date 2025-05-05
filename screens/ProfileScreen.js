@@ -1,950 +1,614 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
+  Image,
   TouchableOpacity,
-  Linking,
-  ScrollView,
   ActivityIndicator,
-  Dimensions,
+  ScrollView,
   SafeAreaView,
-  Platform,
-  Alert, Image
-} from "react-native";
-import { Calendar } from "react-native-calendars";
-import { collection, query, where, onSnapshot, doc, getDoc } from "firebase/firestore";
-import { db } from "../firebaseConfig";
-import { Ionicons } from "@expo/vector-icons";
-import * as FileSystem from 'expo-file-system';
-import RNHTMLtoPDF from 'react-native-html-to-pdf';
-import * as Sharing from 'expo-sharing';
-import * as Print from 'expo-print';
+  Alert
+} from 'react-native';
 
-const { width, height } = Dimensions.get("window");
 
-const PagosScreen = ({ route, navigation }) => {
-  const [loading, setLoading] = useState(true);
-  const [pagoData, setPagoData] = useState(null);
-  const [error, setError] = useState(null);
-  const [jugadorId, setJugadorId] = useState(null);
-  const [esPorrista, setEsPorrista] = useState(false);
-  const [alCorriente, setAlCorriente] = useState(false);
+import { Ionicons } from '@expo/vector-icons';
+import { auth, db } from '../firebaseConfig';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
-  // Función para formatear fechas
-  const formatFirestoreDate = (timestamp) => {
-    if (!timestamp) return null;
-    
-    if (typeof timestamp === 'string') {
-      // Si ya está en formato aaaa-mm-dd
-      if (timestamp.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        return timestamp;
-      }
-      // Si está en formato aaaa/mm/dd
-      if (timestamp.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
-        return timestamp.replace(/\//g, '-');
-      }
-      // Si es un string ISO
-      return timestamp.split('T')[0];
-    }
-    
-    // Si es un timestamp de Firestore
-    if (timestamp.seconds) {
-      const date = new Date(timestamp.seconds * 1000);
-      return date.toISOString().split('T')[0];
-    }
-    
-    return null;
-  };
 
-  useEffect(() => {
-    if (route.params?.jugadorId) {
-      setJugadorId(route.params.jugadorId);
-    }
-    if (route.params?.esPorrista) {
-      setEsPorrista(route.params.esPorrista);
-    }
-  }, [route.params]);
-
-  // Obtener datos del jugador/porrista
-  const fetchPlayerData = async (id) => {
-    try {
-      const playerCollection = esPorrista ? 'porristas' : 'jugadores';
-      const playerDoc = await getDoc(doc(db, playerCollection, id));
-      return playerDoc.exists() ? playerDoc.data() : null;
-    } catch (error) {
-      console.error("Error fetching player data:", error);
-      return null;
-    }
-  };
-
-  useEffect(() => {
-    if (!jugadorId) return;
-
-    const collectionName = esPorrista ? "pagos_porristas" : "pagos_jugadores";
-    const q = query(
-      collection(db, collectionName), 
-      where(esPorrista ? "porristaId" : "jugadorId", "==", jugadorId)
-    );
-
-    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
-      try {
-        if (!querySnapshot.empty) {
-          const docData = querySnapshot.docs[0].data();
-          const playerData = await fetchPlayerData(jugadorId);
-          
-          // Procesar pagos según la estructura definida
-          const pagosFormateados = docData.pagos.map((pago) => ({
-            estatus: pago.estatus || "pendiente",
-            fecha_limite: formatFirestoreDate(pago.fecha_limite)?.replace(/-/g, '/'),
-            fecha_pago: pago.estatus === "pagado" ? formatFirestoreDate(pago.fecha_pago)?.replace(/-/g, '/') : null,
-            monto: pago.monto || 0,
-            tipo: pago.tipo || "Pago",
-            ...(pago.abono === "SI" && {
-              abono: pago.abono,
-              abonos: pago.abonos || [],
-              total_abonado: pago.total_abonado || 0
-            }),
-            ...(pago.beca && { beca: pago.beca }),
-            ...(pago.descuento && { descuento: pago.descuento }),
-            ...(pago.prorroga && { prorroga: pago.prorroga })
-          }));
-
-          // Calcular montos según la estructura de pagos
-          const montoTotalPagado = pagosFormateados
-            .filter(pago => pago.estatus === "pagado")
-            .reduce((sum, pago) => sum + (pago.monto - (pago.descuento || 0)), 0);
-
-          const montoTotalPendiente = pagosFormateados
-            .filter(pago => pago.estatus === "pendiente")
-            .reduce((sum, pago) => sum + (pago.monto - (pago.descuento || 0)), 0);
-
-          const transformedData = {
-            id: querySnapshot.docs[0].id,
-            [esPorrista ? "porristaId" : "jugadorId"]: jugadorId,
-            monto_total: docData.monto_total || (esPorrista ? 1000 : 1500),
-            monto_total_pagado: montoTotalPagado,
-            monto_total_pendiente: montoTotalPendiente,
-            nombre_jugador: playerData?.nombre ? 
-              `${playerData.nombre} ${playerData.apellido_p} ${playerData.apellido_m}` : 
-              (esPorrista ? "Porrista" : "Jugador"),
-            categoria: playerData?.categoria || "N/A",
-            numero: playerData?.numero_mfl || "N/A",
-            pagos: pagosFormateados,
-            fecha_registro: formatFirestoreDate(docData.fecha_registro)?.replace(/-/g, '/')
-          };
-          
-          setPagoData(transformedData);
-          setAlCorriente(montoTotalPendiente === 0);
-        } else {
-          setError(`No se encontraron datos de pagos para este ${esPorrista ? "porrista" : "jugador"}.`);
-        }
-      } catch (error) {
-        console.error("Error al procesar los pagos:", error);
-        setError("Error al cargar los pagos. Inténtalo de nuevo.");
-      } finally {
-        setLoading(false);
-      }
-    }, (error) => {
-      console.error("Error en la suscripción:", error);
-      setError("Error en la conexión con la base de datos.");
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [jugadorId, esPorrista]);
-
-  // Generar fechas marcadas para el calendario
-  const getMarkedDates = () => {
-    if (!pagoData) return {};
-    
-    const marked = {};
-    pagoData.pagos.forEach((pago) => {
-      const fechaFormateada = formatFirestoreDate(pago.fecha_limite);
-      if (fechaFormateada) {
-        marked[fechaFormateada] = {
-          marked: true,
-          dotColor: pago.estatus === "pendiente" ? "#FF5252" : "#4CAF50",
-          selected: true,
-          selectedColor: pago.estatus === "pendiente" ? "#FFD700" : "#81C784",
-          selectedTextColor: pago.estatus === "pendiente" ? "#000" : "#FFF",
-          customStyles: {
-            container: {
-              borderRadius: 20,
-              backgroundColor: pago.estatus === "pendiente" ? "#FFF3E0" : "#E8F5E9",
-              borderWidth: 1,
-              borderColor: pago.estatus === "pendiente" ? "#FFA000" : "#66BB6A",
-              elevation: 3,
-              shadowColor: pago.estatus === "pendiente" ? "#FF6D00" : "#2E7D32",
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.3,
-              shadowRadius: 3,
-            },
-            text: {
-              color: pago.estatus === "pendiente" ? "#D84315" : "#1B5E20",
-              fontWeight: 'bold',
-              fontSize: 14,
-            },
-          }
-        };
-      }
-    });
-    return marked;
-  };
-
-  // Generar PDF con los detalles del pago
-  const generatePDF = async (pago) => {
-    let logoBase64 = '';
-    try {
-      // Convertir la imagen a base64 (solo para móvil)
-      if (Platform.OS !== 'web') {
-        try {
-          const image = require('../assets/logoToros.jpg');
-          const response = await fetch(Image.resolveAssetSource(image).uri);
-          const blob = await response.blob();
-          const reader = new FileReader();
-          
-          logoBase64 = await new Promise((resolve, reject) => {
-            reader.onloadend = () => resolve(reader.result);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-        } catch (imageError) {
-          console.warn('No se pudo cargar la imagen del logo:', imageError);
-        }
-      } else {
-        // Para web (usa la ruta pública)
-        logoBase64 = '/logoToros.jpg';
-      }
-  
-      // Obtener la fecha actual formateada
-      const today = new Date();
-      const formattedDate = today.toLocaleDateString('es-MX', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      });
-  
-      // Crear el HTML para el PDF con el nuevo formato
-      const html = `
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          <style>
-            body { 
-              font-family: Arial, sans-serif; 
-              padding: 0;
-              margin: 0;
-              color: #000;
-              font-size: 14px;
-            }
-            .container {
-              width: 100%;
-              max-width: 600px;
-              margin: 0 auto;
-              padding: 15px;
-            }
-            .header {
-              text-align: center;
-              margin-bottom: 20px;
-              border-bottom: 1px solid #000;
-              padding-bottom: 10px;
-              position: relative;
-            }
-            .logo {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: 80px;
-              height: auto;
-            }
-            .header-content {
-              margin-left: ${logoBase64 ? '90px' : '0'};
-            }
-            .club-name {
-              font-size: 18px;
-              font-weight: bold;
-              margin-bottom: 5px;
-            }
-            .club-subtitle {
-              font-size: 14px;
-              margin-bottom: 10px;
-            }
-            .club-address {
-              font-size: 12px;
-              margin-bottom: 5px;
-            }
-            .club-phone {
-              font-size: 12px;
-              margin-bottom: 10px;
-            }
-            .separator {
-              border-top: 1px dashed #000;
-              margin: 15px 0;
-            }
-            .receipt-title {
-              font-size: 16px;
-              font-weight: bold;
-              text-align: center;
-              margin: 15px 0;
-            }
-            .receipt-line {
-              display: flex;
-              margin-bottom: 10px;
-            }
-            .receipt-label {
-              width: 120px;
-              font-weight: bold;
-            }
-            .receipt-value {
-              flex: 1;
-              border-bottom: 1px solid #000;
-              padding-left: 10px;
-            }
-            .payment-method {
-              display: flex;
-              margin-top: 15px;
-            }
-            .payment-option {
-              margin-right: 20px;
-              display: flex;
-              align-items: center;
-            }
-            .signature-line {
-              margin-top: 40px;
-              text-align: center;
-              border-top: 1px solid #000;
-              width: 200px;
-              margin-left: auto;
-              margin-right: auto;
-              padding-top: 5px;
-            }
-            .footer {
-              text-align: center;
-              margin-top: 30px;
-              font-size: 10px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Logo Club Potros" />` : ''}
-              <div class="header-content">
-                <div class="club-name">CLUB POTROS DE LA ANÁHUAC</div>
-                <div class="club-subtitle">FRATERNIDAD LEGÍTIMOS POTROS, A.C.</div>
-                <div class="club-address">Porfirio Barba Jacob No. 901, Col. Anáhuac, San Nicolás de los Garza, N.L.</div>
-                <div class="club-phone">Tels. 81-8376-1777 / 81-2236-0535</div>
-              </div>
-            </div>
-  
-            <div class="separator"></div>
-  
-            <div class="receipt-title">RECIBO</div>
-  
-            <div class="receipt-line">
-              <div class="receipt-label">Recibí:</div>
-              <div class="receipt-value">${pagoData.nombre_jugador}</div>
-            </div>
-  
-            <div class="receipt-line">
-              <div class="receipt-label">La cantidad de $</div>
-              <div class="receipt-value">${pago.monto}</div>
-            </div>
-  
-            <div class="receipt-line">
-              <div class="receipt-label">Por concepto de</div>
-              <div class="receipt-value">${pago.tipo}</div>
-            </div>
-  
-            <div class="receipt-line">
-              <div class="receipt-value" style="margin-left: 120px;"></div>
-            </div>
-  
-            <div class="receipt-line">
-              <div class="receipt-label">${esPorrista ? 'Porrista' : 'Jugador'}</div>
-              <div class="receipt-value">${pagoData.nombre_jugador}</div>
-            </div>
-  
-            ${!esPorrista ? `
-            <div class="receipt-line">
-              <div class="receipt-label">Categoria</div>
-              <div class="receipt-value">${pagoData.categoria}</div>
-            </div>
-            ` : ''}
-  
-            <div class="payment-method">
-              <div class="payment-option">
-                <div class="receipt-label">Novato</div>
-              </div>
-              <div class="payment-option">
-                <div class="receipt-label">Veterano</div>
-              </div>
-              <div class="payment-option">
-                <div class="receipt-label">Efectivo</div>
-              </div>
-              <div class="payment-option">
-                <div class="receipt-label">Cheque No.</div>
-                <div class="receipt-value" style="width: 50px; margin-left: 5px;"></div>
-              </div>
-            </div>
-  
-            <div class="receipt-line">
-              <div class="receipt-label">Fecha</div>
-              <div class="receipt-value">${formattedDate}</div>
-            </div>
-  
-            <div class="separator"></div>
-  
-            <div class="receipt-line" style="margin-top: 20px;">
-              <div class="receipt-label">Recibí:</div>
-              <div class="receipt-value"></div>
-            </div>
-  
-            <div class="footer">
-              Documento generado el ${formattedDate} - Club Potros © ${today.getFullYear()}
-            </div>
-          </div>
-        </body>
-      </html>
-      `;
-  
-      if (Platform.OS === 'web') {
-        const printWindow = window.open('', '_blank');
-        printWindow.document.write(html.replace('../assets/logoToros.jpg', '/assets/logoToros.jpg'));
-        printWindow.document.close();
-        printWindow.print();
-      } else {
-        const { uri } = await Print.printToFileAsync({
-          html,
-          width: 612,  // Tamaño carta en puntos (8.5 x 11 pulgadas)
-          height: 792,
-        });
-  
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri, {
-            mimeType: 'application/pdf',
-            dialogTitle: 'Compartir recibo',
-            UTI: 'com.adobe.pdf'
-          });
-        } else {
-          Alert.alert('PDF generado', `Archivo guardado en: ${uri}`);
-        }
-      }
-    } catch (error) {
-      console.error('Error al generar el PDF:', error);
-      Alert.alert('Error', 'No se pudo generar el recibo');
-    }
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ffbe00" />
-        <Text style={styles.loadingText}>Cargando información de pagos...</Text>
-      </View>
-    );
+const formatValue = (value) => {
+  if (value === null || value === undefined) return 'N/A';
+  if (typeof value === 'object') {
+    return value.tipo || value.nombre || JSON.stringify(value);
   }
+  return String(value);
+};
 
-  if (error) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity
-          style={styles.retryButton}
-          onPress={() => {
-            setLoading(true);
-            setError(null);
-          }}
-        >
-          <Text style={styles.retryButtonText}>Reintentar</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+const CustomImage = ({ uri, style }) => {
+  const [imageError, setImageError] = useState(false);
 
-  if (!pagoData) {
+  if (imageError || !uri) {
     return (
-      <View style={styles.noDataContainer}>
-        <Text style={styles.noDataText}>No se encontraron datos de pagos.</Text>
+      <View style={[styles.cardImage, styles.imagePlaceholder]}>
+        <Ionicons name="person" size={40} color="#ccc" />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-        </View>
+    <Image 
+      source={{ uri }} 
+      style={style}
+      onError={() => setImageError(true)}
+    />
+  );
+};
 
-        <View style={styles.calendarWrapper}>
-          <Calendar
-            style={styles.calendar}
-            markedDates={getMarkedDates()}
-            markingType={'custom'}
-            theme={{
-              calendarBackground: "#fff",
-              selectedDayBackgroundColor: "#FFD700",
-              selectedDayTextColor: "#000",
-              todayTextColor: "#2196F3",
-              dayTextColor: "#2d4150",
-              textDisabledColor: "#d9e1e8",
-              textSectionTitleColor: "#333",
-              monthTextColor: "#333",
-              arrowColor: "#333",
-            }}
-            dayComponent={({date, state, marking}) => {
-              const isMarked = marking?.marked;
-              const isSelected = marking?.selected;
-              const isToday = date.dateString === new Date().toISOString().split('T')[0];
-              const isPending = marking?.dotColor === "#FF5252";
+const ProfileScreen = ({ navigation }) => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [showMenu, setShowMenu] = useState(false);
+  const [players, setPlayers] = useState([]);
+  const [cheerleaders, setCheerleaders] = useState([]);
+  const [loginData, setLoginData] = useState({
+    correo: '',
+    id: '',
+    nombre_completo: '',
+    ocupacion: '',
+    rol: '',
+  });
+
+  useEffect(() => {
+    const user = auth.currentUser;
+
+    const fetchUserData = async () => {
+      try {
+        const q = query(collection(db, 'usuarios'), where('uid', '==', user.uid));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          const userDoc = querySnapshot.docs[0];
+          const userData = userDoc.data();
+          setLoginData({
+            correo: user.email,
+            id: user.uid,
+            nombre_completo: userData.nombre_completo || 'Usuario',
+            ocupacion: userData.ocupacion || '',
+            rol: userData.rol || '',
+          });
+        } else {
+          setError('No se encontraron datos adicionales del usuario.');
+        }
+      } catch (error) {
+        console.error('Error al obtener los datos del usuario:', error);
+        setError('Error al cargar los datos del usuario.');
+      }
+    };
+
+    if (user) {
+      fetchUserData();
+    } else {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (loginData.id) {
+      const fetchPlayersAndCheerleaders = async () => {
+        try {
+          const qPlayers = query(
+            collection(db, 'jugadores'), 
+            where('uid', '==', loginData.id),
+            where('activo', '==', 'activo')
+          );
+          
+          const qCheerleaders = query(
+            collection(db, 'porristas'), 
+            where('uid', '==', loginData.id),
+            where('activo', '==', 'activo')
+          );
+
+          const [playersSnapshot, cheerleadersSnapshot] = await Promise.all([
+            getDocs(qPlayers),
+            getDocs(qCheerleaders),
+          ]);
+
+          const playersData = playersSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+          const cheerleadersData = cheerleadersSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+          setPlayers(playersData);
+          setCheerleaders(cheerleadersData);
+        } catch (error) {
+          console.error('Error al obtener los registros:', error);
+          setError('Error al cargar los registros. Inténtalo de nuevo.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchPlayersAndCheerleaders();
+    }
+  }, [loginData.id]);
+
+  const handleDeletePlayer = async (id, isCheerleader = false) => {
+    Alert.alert(
+      'Confirmar eliminación',
+      '¿Estás seguro de que quieres eliminar este registro?',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Eliminar',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              const playerRef = doc(db, isCheerleader ? 'porristas' : 'jugadores', id);
+              await updateDoc(playerRef, {
+                activo: 'inactivo'
+              });
               
-              return (
-                <TouchableOpacity
-                  style={[
-                    styles.calendarDay,
-                    isSelected && styles.calendarDaySelected,
-                    state === 'disabled' && styles.calendarDayDisabled,
-                    isToday && !isSelected && styles.calendarDayToday,
-                    isPending && !isSelected && styles.calendarDayPending,
-                  ]}
-                  disabled={state === 'disabled'}
-                  onPress={() => {
-                    if (isMarked) {
-                      const pago = pagoData.pagos.find(p => {
-                        const pagoDate = formatFirestoreDate(p.fecha_limite);
-                        return pagoDate === date.dateString;
-                      });
-                      if (pago) {
-                        Alert.alert(
-                          `Detalle de pago - ${pago.tipo}`,
-                          `Estado: ${pago.estatus}\n` +
-                          `Monto: $${pago.monto}\n` +
-                          `Fecha límite: ${pago.fecha_limite}\n` +
-                          (pago.fecha_pago ? `Fecha pago: ${pago.fecha_pago}\n` : '') +
-                          (pago.beca ? `Beca: ${pago.beca}%\n` : '') +
-                          (pago.descuento ? `Descuento: $${pago.descuento}\n` : '')
-                        );
-                      }
-                    }
-                  }}
-                >
-                  <Text style={[
-                    styles.calendarDayText,
-                    isSelected && styles.calendarDayTextSelected,
-                    state === 'disabled' && styles.calendarDayTextDisabled,
-                    isToday && !isSelected && styles.calendarDayTextToday,
-                    isPending && !isSelected && styles.calendarDayTextPending,
-                  ]}>
-                    {date.day}
+              if (isCheerleader) {
+                setCheerleaders(cheerleaders.filter(c => c.id !== id));
+              } else {
+                setPlayers(players.filter(p => p.id !== id));
+              }
+              
+              Alert.alert('Éxito', 'Registro marcado como inactivo');
+            } catch (error) {
+              console.error('Error al eliminar:', error);
+              Alert.alert('Error', 'No se pudo eliminar el registro');
+            } finally {
+              setLoading(false);
+            }
+          },
+          style: 'destructive',
+        },
+      ]
+    );
+  };
+
+  const getStatusStyle = (status) => {
+    switch(status) {
+      case 'Completo':
+        return { color: 'green' };
+      case 'Incompleto':
+        return { color: 'red' };
+      case 'pendiente':
+        return { color: 'orange' };
+      default:
+        return { color: '#555' };
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    Alert.alert(
+      'Eliminar Cuenta',
+      '¿Estás seguro de que deseas eliminar tu cuenta permanentemente? Esta acción no se puede deshacer y se perderán todos tus datos.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Eliminar',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              
+              // Primero marcamos como inactivos todos los jugadores y porristas asociados
+              const batchUpdates = [];
+              
+              // Marcamos jugadores como inactivos
+              players.forEach(player => {
+                const playerRef = doc(db, 'jugadores', player.id);
+                batchUpdates.push(updateDoc(playerRef, { activo: 'inactivo' }));
+              });
+              
+              // Marcamos porristas como inactivas
+              cheerleaders.forEach(cheerleader => {
+                const cheerleaderRef = doc(db, 'porristas', cheerleader.id);
+                batchUpdates.push(updateDoc(cheerleaderRef, { activo: 'inactivo' }));
+              });
+              
+              // Ejecutamos todas las actualizaciones
+              await Promise.all(batchUpdates);
+              
+              // Eliminamos el usuario de Firebase Auth
+              const user = auth.currentUser;
+              await user.delete();
+              
+              // Navegamos al login
+              navigation.navigate('Login');
+              
+            } catch (error) {
+              console.error('Error al eliminar la cuenta:', error);
+              Alert.alert('Error', 'No se pudo eliminar la cuenta. Asegúrate de haber iniciado sesión recientemente.');
+            } finally {
+              setLoading(false);
+            }
+          },
+          style: 'destructive',
+        },
+      ]
+    );
+  };
+
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#ffbe00" />
+        <Text style={styles.loadingText}>Cargando datos del usuario...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.headerContainer}>
+        <TouchableOpacity 
+          style={styles.profileButton} 
+          onPress={() => setShowMenu(!showMenu)}
+        >
+          <View style={styles.profileContent}>
+            <Text style={styles.headerText}>Hola, {formatValue(loginData.nombre_completo)}</Text>
+            <Ionicons name="person-circle" size={32} color="#333" />
+          </View>
+        </TouchableOpacity>
+
+        {showMenu && (
+          <View style={styles.menuContainer}>
+            <View style={styles.menu}>
+              <TouchableOpacity
+                style={[styles.menuItem, styles.deleteAccountItem]}
+                onPress={handleDeleteAccount}
+              >
+                <Text style={[styles.menuText, styles.deleteAccountText]}>Eliminar Cuenta</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setShowMenu(false);
+                  auth.signOut();
+                  navigation.navigate('Login');
+                }}
+              >
+                <Text style={styles.menuText}>Cerrar Sesión</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </View>
+
+      <ScrollView 
+        style={styles.mainContent}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.sectionTitle}>Jugadores Registrados</Text>
+        {players.length > 0 ? (
+          players.map((player, index) => (
+            <View key={`player-${player.id || index}`} style={styles.card}>
+              <View style={styles.cardLeft}>
+                <CustomImage uri={player.foto} style={styles.cardImage} />
+                <View style={styles.cardInfo}>
+                  <Text style={styles.cardName}>
+                    {formatValue(player.nombre)} {formatValue(player.apellido_p)} {formatValue(player.apellido_m)}
                   </Text>
-                  {isMarked && (
-                    <View style={[
-                      styles.calendarDot,
-                      isSelected && styles.calendarDotSelected,
-                      isPending && styles.calendarDotPending,
-                    ]}/>
-                  )}
+                  <Text style={styles.cardDetail}>Tipo: {formatValue(player.tipo_inscripcion)}</Text>
+                  <Text style={styles.cardDetail}>MFL: {formatValue(player.numero_mfl)}</Text>
+                  <Text style={styles.cardDetail}>Categoría: {formatValue(player.categoria)}</Text>
+                  <Text style={[styles.cardDetail, getStatusStyle(player.estatus)]}>
+                    Estatus: {formatValue(player.estatus)}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.cardButtons}>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.pagosButton]}
+                  onPress={() => navigation.navigate('Pagos', { jugadorId: player.id })}
+                >
+                  <Text style={styles.buttonText}>Pagos</Text>
                 </TouchableOpacity>
-              );
-            }}
-          />
-        </View>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.equipmentButton]}
+                  onPress={() => navigation.navigate('Equipamiento', { jugadorId: player.id })}
+                >
+                  <Text style={styles.buttonText}>Equipo</Text>
+                </TouchableOpacity>
 
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Resumen de Pagos</Text>
-          
-          {alCorriente && (
-            <View style={styles.alCorrienteContainer}>
-              <Text style={styles.alCorrienteText}>¡Estás al corriente con tus pagos!</Text>
+              </View>
             </View>
-          )}
-          
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>{esPorrista ? "Porrista:" : "Jugador:"}</Text>
-            <Text style={styles.summaryValue}>{pagoData.nombre_jugador}</Text>
-          </View>
-          {!esPorrista && (
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Categoría:</Text>
-              <Text style={styles.summaryValue}>{pagoData.categoria}</Text>
+          ))
+        ) : (
+          <Text style={styles.noDataText}>No hay jugadores activos registrados.</Text>
+        )}
+
+        <Text style={styles.sectionTitle}>Porristas Registradas</Text>
+        {cheerleaders.length > 0 ? (
+          cheerleaders.map((cheerleader, index) => (
+            <View key={`cheerleader-${cheerleader.id || index}`} style={styles.card}>
+              <View style={styles.cardLeft}>
+                <CustomImage uri={cheerleader.foto} style={styles.cardImage} />
+                <View style={styles.cardInfo}>
+                  <Text style={styles.cardName}>
+                    {formatValue(cheerleader.nombre)} {formatValue(cheerleader.apellido_p)} {formatValue(cheerleader.apellido_m)}
+                  </Text>
+                  <Text style={styles.cardDetail}>Tipo: {formatValue(cheerleader.tipo_inscripcion)}</Text>
+                  <Text style={styles.cardDetail}>MFL: {formatValue(cheerleader.numero_mfl)}</Text>
+                  <Text style={styles.cardDetail}>Categoría: {formatValue(cheerleader.categoria)}</Text>
+                  <Text style={[styles.cardDetail, getStatusStyle(cheerleader.estatus)]}>
+                    Estatus: {formatValue(cheerleader.estatus)}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.cardButtons}>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.pagosButton]}
+                  onPress={() => navigation.navigate('Pagos', { 
+                    jugadorId: cheerleader.id,
+                    esPorrista: true 
+                  })}
+                >
+                  <Text style={styles.buttonText}>Pagos</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.deleteButton]}
+                  onPress={() => handleDeletePlayer(cheerleader.id, true)}
+                >
+                  <Text style={styles.buttonText}>Eliminar</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          )}
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Número:</Text>
-            <Text style={styles.summaryValue}>{pagoData.numero}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total:</Text>
-            <Text style={styles.summaryValue}>${pagoData.monto_total}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Pagado:</Text>
-            <Text style={[styles.summaryValue, styles.paidAmount]}>
-              ${pagoData.monto_total_pagado}
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Pendiente:</Text>
-            <Text style={[styles.summaryValue, styles.pendingAmount]}>
-              ${pagoData.monto_total_pendiente}
-            </Text>
-          </View>
-        </View>
-
-        <Text style={styles.sectionTitle}>Detalle de Pagos</Text>
-
-        {pagoData.pagos.map((pago, index) => (
-          <View
-            key={index}
-            style={[
-              styles.paymentCard,
-              pago.estatus === "pendiente" ? styles.pendingCard : styles.paidCard
-            ]}
-          >
-            <View style={styles.paymentHeader}>
-              <Text style={styles.paymentType}>{pago.tipo}</Text>
-              <Text style={[
-                styles.paymentStatus,
-                pago.estatus === "pendiente" ? styles.pendingText : styles.paidText
-              ]}>
-                {pago.estatus.toUpperCase()}
-              </Text>
-            </View>
-
-            <Text style={styles.paymentAmount}>${pago.monto}</Text>
-
-            {pago.beca && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Beca:</Text>
-                <Text style={styles.detailValue}>{pago.beca}%</Text>
-              </View>
-            )}
-
-            {pago.descuento && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Descuento:</Text>
-                <Text style={styles.detailValue}>${pago.descuento}</Text>
-              </View>
-            )}
-
-            {pago.fecha_limite && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Fecha límite:</Text>
-                <Text style={styles.detailValue}>{pago.fecha_limite}</Text>
-              </View>
-            )}
-
-            {pago.fecha_pago && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Fecha pago:</Text>
-                <Text style={styles.detailValue}>{pago.fecha_pago}</Text>
-              </View>
-            )}
-
-            {pago.abono === 'SI' && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Abonos:</Text>
-                <Text style={styles.detailValue}>
-                  ${pago.total_abonado || 0} de ${pago.monto}
-                </Text>
-              </View>
-            )}
-
-            <TouchableOpacity
-              style={styles.downloadButton}
-              onPress={() => generatePDF(pago)}
-            >
-              <Text style={styles.downloadButtonText}>Generar comprobante</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
+          ))
+        ) : (
+          <Text style={styles.noDataText}>No hay porristas activas registradas.</Text>
+        )}
       </ScrollView>
+
+      <TouchableOpacity
+        style={styles.addButton}
+        onPress={() => navigation.navigate('HomeScreen')}
+      >
+        <View style={styles.addButtonContent}>
+          <Ionicons name="add" size={24} color="#fff" />
+          <Text style={styles.addButtonText}>Registrar</Text>
+        </View>
+      </TouchableOpacity>
+
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => setLoading(true)}>
+            <Text style={styles.retryButtonText}>Reintentar</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
 
-// Estilos (se mantienen iguales)
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: '#f5f5f5',
+    padding: 5,
   },
-  scrollView: {
+  headerContainer: {
+    alignItems: 'flex-end',
+    marginBottom: 20,
+    zIndex: 100,
+    paddingLeft: 10,
+    paddingRight: 10,
+  },
+  profileButton: {
+    width: '100%',
+  },
+  profileContent: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  headerText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginRight: 10,
+  },
+  menuContainer: {
+    position: 'absolute',
+    top: 40,
+    right: 0,
+    zIndex: 1000,
+  },
+  menu: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    minWidth: 150,
+  },
+  menuItem: {
+    padding: 10,
+  },
+  menuText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  deleteAccountItem: {
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    marginTop: 5,
+    paddingTop: 10,
+  },
+  deleteAccountText: {
+    color: '#ff4444',
+    fontWeight: 'bold',
+  },
+  mainContent: {
     flex: 1,
+    zIndex: 1,
+    paddingLeft: 10,
+    paddingRight: 10,
   },
   scrollContent: {
-    padding: 15,
-    paddingBottom: 30,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  backButton: {
-    marginRight: 15,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f5f5f5",
-  },
-  loadingText: {
-    marginTop: 20,
-    fontSize: 16,
-    color: "#333",
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-    backgroundColor: "#f5f5f5",
-  },
-  errorText: {
-    fontSize: 16,
-    color: "#d9534f",
-    marginBottom: 20,
-    textAlign: "center",
-  },
-  noDataContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f5f5f5",
-    padding: 20,
-  },
-  noDataText: {
-    fontSize: 16,
-    color: "#777",
-  },
-  retryButton: {
-    backgroundColor: "#ffbe00",
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 5,
-    elevation: 2,
-  },
-  retryButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
-  calendarWrapper: {
-    height: 350,
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    marginBottom: 15,
-    overflow: "hidden",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-  },
-  calendar: {
-    height: "100%",
-    width: "100%",
-  },
-  summaryCard: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 20,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-  },
-  summaryTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 12,
-    textAlign: "center",
-  },
-  summaryRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  summaryLabel: {
-    fontSize: 14,
-    color: "#555",
-  },
-  summaryValue: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  paidAmount: {
-    color: "#32CD32",
-  },
-  pendingAmount: {
-    color: "#FF6347",
+    paddingBottom: 100,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 10,
-    marginLeft: 5,
-  },
-  paymentCard: {
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    elevation: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-  },
-  pendingCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: "#FF6347",
-  },
-  paidCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: "#32CD32",
-  },
-  paymentHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  paymentType: {
-    fontSize: 15,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  paymentStatus: {
-    fontSize: 13,
-    fontWeight: "bold",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  pendingText: {
-    backgroundColor: "#FFEBEE",
-    color: "#D32F2F",
-  },
-  paidText: {
-    backgroundColor: "#E8F5E9",
-    color: "#388E3C",
-  },
-  paymentAmount: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 6,
-  },
-  detailRow: {
-    flexDirection: "row",
-    marginBottom: 4,
-  },
-  detailLabel: {
-    fontSize: 13,
-    color: "#666",
-    marginRight: 5,
-  },
-  detailValue: {
-    fontSize: 13,
-    color: "#333",
-  },
-  downloadButton: {
-    backgroundColor: "#ffbe00",
-    borderRadius: 5,
-    padding: 8,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  downloadButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 13,
-  },
-  alCorrienteContainer: {
-    backgroundColor: '#E8F5E9',
-    padding: 10,
-    borderRadius: 5,
-    marginBottom: 15,
-    borderLeftWidth: 4,
-    borderLeftColor: '#388E3C',
-  },
-  alCorrienteText: {
-    color: '#388E3C',
+    fontSize: 18,
     fontWeight: 'bold',
-    textAlign: 'center',
+    marginVertical: 15,
+    color: '#333',
+    textAlign: 'left',
   },
-  calendarDay: {
-    width: 36,
-    height: 36,
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 3,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  cardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  cardImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    marginRight: 15,
+  },
+  imagePlaceholder: {
+    backgroundColor: '#f0f0f0',
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 18,
-    margin: 2,
   },
-  calendarDaySelected: {
-    backgroundColor: '#FFD700',
-    elevation: 4,
-    shadowColor: '#FFA000',
+  cardInfo: {
+    flex: 1,
+  },
+  cardName: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 5,
+    numberOfLines: 2,
+    ellipsizeMode: 'tail',
+    width: '60%',
+  },
+  cardDetail: {
+    fontSize: 12,
+    color: '#555',
+    marginBottom: 3,
+  },
+  cardButtons: {
+    marginLeft: 10,
+    alignItems: 'flex-end',
+    width: '30%',
+  },
+  actionButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 5,
+    marginBottom: 6,
+    minWidth: 100,
+    width: '100%',
+    alignItems: 'center',
+  },
+  pagosButton: {
+    backgroundColor: '#ffbe00',
+  },
+  equipmentButton: {
+    backgroundColor: '#2c3e50',
+  },
+  deleteButton: {
+    backgroundColor: '#ff4444',
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 11,
+  },
+  noDataText: {
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#777',
+    marginVertical: 20,
+    fontStyle: 'italic',
+  },
+  addButton: {
+    position: 'absolute',
+    bottom: 30,
+    right: 30,
+    backgroundColor: '#ffbe00',
+    borderRadius: 30,
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 3,
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 100,
   },
-  calendarDayToday: {
-    borderWidth: 2,
-    borderColor: '#2196F3',
+  addButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  calendarDayPending: {
-    backgroundColor: '#FFF3E0',
-  },
-  calendarDayDisabled: {
-    opacity: 0.3,
-  },
-  calendarDayText: {
+  addButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
     fontSize: 16,
-    fontWeight: '500',
-    color: '#2d4150',
+    marginLeft: 5,
   },
-  calendarDayTextSelected: {
-    color: '#000',
+  errorContainer: {
+    alignItems: 'center',
+    marginTop: 20,
+    padding: 20,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+  },
+  errorText: {
+    color: 'red',
+    fontSize: 16,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#ffbe00',
+    padding: 12,
+    borderRadius: 5,
+    width: '100%',
+    alignItems: 'center',
+  },
+  retryButtonText: {
+    color: '#fff',
     fontWeight: 'bold',
+    fontSize: 16,
   },
-  calendarDayTextToday: {
-    color: '#2196F3',
-    fontWeight: 'bold',
-  },
-  calendarDayTextPending: {
-    color: '#D84315',
-    fontWeight: 'bold',
-  },
-  calendarDayTextDisabled: {
-    color: '#d9e1e8',
-  },
-  calendarDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#4CAF50',
-    marginTop: 2,
-  },
-  calendarDotSelected: {
-    backgroundColor: '#000',
-  },
-  calendarDotPending: {
-    backgroundColor: '#FF5252',
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#333',
+    textAlign: 'center',
   },
 });
 
-export default PagosScreen;
+export default ProfileScreen;

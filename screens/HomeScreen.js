@@ -13,7 +13,6 @@ import { getFirestore, collection, addDoc, query, where, getDocs, doc, updateDoc
 import { getAuth } from 'firebase/auth';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
-import { obtenerCategoria } from '../utils/obtenerCategoria';
 import { captureRef } from 'react-native-view-shot';
 
 // Configuración de Firebase
@@ -56,6 +55,10 @@ const HomeScreen = ({ navigation }) => {
       club_anterior: '',
       temporadas_jugadas: '',
       motivo_transferencia: ''
+    }, 
+    temporadaId: {
+      label:'',
+      value:''
     }
   });
 
@@ -65,7 +68,8 @@ const HomeScreen = ({ navigation }) => {
   const [uploadProgress, setUploadProgress] = useState({});
   const [currentUpload, setCurrentUpload] = useState(null);
   const signatureRef = useRef(null);
-  const [categoria, setCategoria] = useState(null);
+  const [acceptedRegulation, setAcceptedRegulation] = useState(false);
+
   const steps = [
     'GeneroForm',
     'TipoInscripcionForm',
@@ -73,17 +77,14 @@ const HomeScreen = ({ navigation }) => {
     'DatosContactoForm',
     'DatosEscolaresMedicosForm',
     ...(formData.tipo_inscripcion === 'transferencia' ? ['TransferenciaForm'] : []),
-    'FirmaFotoForm',
-    'DocumentacionForm',
+    'FirmaFotoForm'
   ];
 
-  // Función para subir archivos a Firebase Storage
   const uploadFile = async (fileUri, fileName, folder) => {
     try {
       let finalUri = fileUri;
       let blob;
   
-      // Manejo especial para Android
       if (Platform.OS === 'android' && fileUri.startsWith('content://')) {
         const cacheFileUri = `${FileSystem.cacheDirectory}${fileName}`;
         await FileSystem.copyAsync({
@@ -93,7 +94,6 @@ const HomeScreen = ({ navigation }) => {
         finalUri = cacheFileUri;
       }
   
-      // Convertir a blob
       if (Platform.OS === 'web') {
         const response = await fetch(fileUri);
         blob = await response.blob();
@@ -104,7 +104,6 @@ const HomeScreen = ({ navigation }) => {
         blob = await response.blob();
       }
   
-      // Subir a Storage
       const fileExtension = fileName.split('.').pop() || (blob.type.split('/')[1] || 'jpg');
       const newFileName = `${folder}/${Date.now()}.${fileExtension}`;
       const storageRef = ref(storage, newFileName);
@@ -150,11 +149,10 @@ const HomeScreen = ({ navigation }) => {
       case 'DatosPersonalesForm':
         if (!formData.nombre) newErrors.nombre = 'Nombre es requerido';
         if (!formData.apellido_p) newErrors.apellido_p = 'Apellido paterno es requerido';
-        if (!formData.curp || formData.curp.length !== 18) newErrors.curp = 'CURP debe tener 18 caracteres';
         break;
       case 'FirmaFotoForm':
-        if (formData.firma.length === 0) newErrors.firma = 'Captura tu firma';
         if (!formData.foto_jugador) newErrors.foto_jugador = 'Sube una foto del jugador';
+        if (!acceptedRegulation) newErrors.regulation = 'Debes aceptar el reglamento';
         break;
     }
     
@@ -194,92 +192,6 @@ const HomeScreen = ({ navigation }) => {
     });
   };
 
-  const captureSignature = async () => {
-    if (!signatureRef.current || formData.firma.length === 0) {
-      return null;
-    }
-
-    try {
-      // Para web, podemos usar directamente el SVG
-      if (Platform.OS === 'web') {
-        const svg = signatureRef.current;
-        const svgData = new XMLSerializer().serializeToString(svg);
-        return `data:image/svg+xml;base64,${btoa(svgData)}`;
-      }
-
-      // Para móvil, convertir a PNG usando react-native-view-shot
-      const uri = await captureRef(signatureRef, {
-        format: 'png',
-        quality: 1,
-        result: 'base64'
-      });
-
-      return `data:image/png;base64,${uri}`;
-    } catch (error) {
-      console.error('Error al capturar firma:', error);
-      return null;
-    }
-  };
-
-  const handleSelectFile = async (field) => {
-    try {
-      let result;
-      
-      if (Platform.OS === 'web') {
-        // Implementación para web
-        return new Promise((resolve) => {
-          const input = document.createElement('input');
-          input.type = 'file';
-          input.accept = '.pdf,.jpg,.jpeg,.png';
-          
-          input.onchange = (e) => {
-            const file = e.target.files[0];
-            if (file) {
-              setFormData(prev => ({
-                ...prev,
-                documentos: {
-                  ...prev.documentos,
-                  [field]: {
-                    uri: URL.createObjectURL(file),
-                    name: file.name,
-                    type: file.type
-                  }
-                }
-              }));
-            }
-            resolve();
-          };
-          
-          input.click();
-        });
-      } else {
-        // Implementación para móvil
-        result = await DocumentPicker.getDocumentAsync({
-          type: ['application/pdf', 'image/*'],
-          copyToCacheDirectory: true
-        });
-      }
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const file = result.assets[0];
-        setFormData(prev => ({
-          ...prev,
-          documentos: {
-            ...prev.documentos,
-            [field]: {
-              uri: file.uri,
-              name: file.name,
-              type: file.mimeType
-            }
-          }
-        }));
-      }
-    } catch (error) {
-      console.error('Error al seleccionar archivo:', error);
-      Alert.alert('Error', 'No se pudo seleccionar el archivo');
-    }
-  };
-
   const handleSubmit = async () => {
     if (validateForm()) {
       setLoading(true);
@@ -289,28 +201,26 @@ const HomeScreen = ({ navigation }) => {
         const uid = user?.uid;
         if (!uid) throw new Error('No se pudo obtener el UID del usuario.');
   
-        // Subir archivos (devuelven URLs directas)
-        const [fotoJugadorURL, firmaURL] = await Promise.all([
-          formData.foto_jugador ? uploadFile(formData.foto_jugador, 'foto_jugador.jpg', 'fotos') : null,
-          formData.firma.length > 0 ? (async () => {
-            const firmaDataURL = await captureSignature();
-            return firmaDataURL ? uploadFile(firmaDataURL, 'firma.png', 'firmas') : null;
-          })() : null
-        ]);
+        // Subir foto del jugador
+        const fotoJugadorURL = formData.foto_jugador ? 
+          await uploadFile(formData.foto_jugador, 'foto_jugador.jpg', 'fotos') : null;
   
-        // Subir documentos (solo URLs)
-        const documentosSubidos = {};
-        const documentosFields = ['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'];
+        // Consultar temporada activa
+        let temporadaActiva = null;
+        const temporadasQuery = query(
+          collection(db, 'temporadas'),
+          where('estado_temporada', '==', 'Activa')
+        );
         
-        await Promise.all(documentosFields.map(async (field) => {
-          if (formData.documentos[field]?.uri) {
-            documentosSubidos[field] = await uploadFile(
-              formData.documentos[field].uri,
-              formData.documentos[field].name || `${field}.pdf`,
-              'documentos'
-            );
-          }
-        }));
+        const temporadasSnapshot = await getDocs(temporadasQuery);
+        if (!temporadasSnapshot.empty) {
+          // Tomar la primera temporada activa (asumiendo que solo hay una activa)
+          const tempDoc = temporadasSnapshot.docs[0];
+          temporadaActiva = {
+            label: tempDoc.data().temporada || 'Temporada Activa',
+            value: tempDoc.id
+          };
+        }
   
         // Crear registro principal
         const datosRegistro = {
@@ -323,7 +233,7 @@ const HomeScreen = ({ navigation }) => {
           telefono: formData.telefono,
           fecha_nacimiento: formData.fecha_nacimiento.toISOString().split('T')[0],
           lugar_nacimiento: formData.lugar_nacimiento,
-          curp: formData.curp,
+          curp: formData.curp, 
           grado_escolar: formData.grado_escolar,
           nombre_escuela: formData.nombre_escuela,
           alergias: formData.alergias,
@@ -331,18 +241,21 @@ const HomeScreen = ({ navigation }) => {
           peso: formData.peso,
           tipo_inscripcion: formData.tipo_inscripcion,
           foto: fotoJugadorURL,
-          rol_id: 'WpOj1dwyls3R7rfgVRZA',
           documentos: {
-            ine_tutor: documentosSubidos.ine_tutor || null,
-            curp_jugador: documentosSubidos.curp_jugador || null,
-            acta_nacimiento: documentosSubidos.acta_nacimiento || null,
-            comprobante_domicilio: documentosSubidos.comprobante_domicilio || null,
-            firma: firmaURL || null
+            ine_tutor: null,
+            curp: null,
+            acta_nacimiento: null,
+            comprobante_domicilio: null,
+            firma: null,
+            firma_jugador:null
           },
           activo: 'activo',
           numero_mfl: formData.numero_mfl,
           fecha_registro: new Date(),
           uid: uid,
+          estatus:"Incompleto",
+          // Agregar temporada activa si existe
+          ...(temporadaActiva && { temporada: temporadaActiva }),
           ...(formData.tipo_inscripcion === 'transferencia' && {
             transferencia: formData.transferencia
           })
@@ -351,8 +264,8 @@ const HomeScreen = ({ navigation }) => {
         // Guardar en colección principal
         const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
         const docRef = await addDoc(collection(db, coleccion), datosRegistro);
-  
-        // Obtener costos según el tipo de inscripción (solo el primer documento)
+        
+        // Obtener costos según el tipo de inscripción
         const costosCollection = formData.tipo_inscripcion === 'porrista' ? 'costos-porrista' : 'costos-jugador';
         const costosQuery = collection(db, costosCollection);
         const costosSnapshot = await getDocs(costosQuery);
@@ -361,32 +274,149 @@ const HomeScreen = ({ navigation }) => {
           throw new Error(`No se encontraron costos configurados para ${formData.tipo_inscripcion}`);
         }
   
-        // Tomamos el primer documento (único documento en la colección)
         const costosDoc = costosSnapshot.docs[0];
         const costosData = costosDoc.data();
   
-        // Crear nombre completo para los pagos
+        const parseCost = (value) => parseInt(value || '0', 10);
+        
         const nombreCompleto = `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`;
+        const fechaActual = new Date();
+        const fechaLimite = new Date();
+        fechaLimite.setDate(fechaLimite.getDate() + 7);
   
-        // Crear registros de pagos según el tipo de inscripción
         if (formData.tipo_inscripcion === 'porrista') {
-          await createPagoPorrista(
-            docRef.id,
-            nombreCompleto,
-            costosData.temporadaId,
-            costosData
-          );
+          const inscripcion = parseCost(costosData.inscripcion);
+          const coaching = parseCost(costosData.coaching);
+          const total = inscripcion + coaching;
+  
+          const pagosPorrista = {
+            porristaId: docRef.id,
+            nombre: nombreCompleto,
+            pagos: [
+              {
+                tipo: 'Inscripción',
+                estatus: 'pendiente',
+                fecha_pago: null,
+                monto: inscripcion,
+                metodo_pago: null,
+                abono: 'NO',
+                abonos: [],
+                total_abonado: 0,
+                fecha_limite: fechaLimite.toISOString().split('T')[0]
+              },
+              {
+                tipo: 'Coaching',
+                estatus: 'pendiente',
+                fecha_pago: null,
+                monto: coaching,
+                metodo_pago: null,
+                abono: 'NO',
+                abonos: [],
+                total_abonado: 0,
+                fecha_limite: null
+              }
+            ],
+            monto_total_pagado: 0,
+            monto_total_pendiente: total,
+            monto_total: total,
+            fecha_registro: fechaActual.toISOString().split('T')[0],
+            temporadaId: temporadaActiva?.value || costosData.temporadaId?.value || null
+          };
+          await addDoc(collection(db, 'pagos_porristas'), pagosPorrista);
         } else {
-          await createPagoJugador(
-            docRef.id,
-            nombreCompleto,
-            costosData.temporadaId,
-            formData.categoria,
-            costosData
-          );
+          const inscripcion = parseCost(costosData.inscripcion);
+          const coaching = parseCost(costosData.coaching);
+          const tunel = parseCost(costosData.tunel);
+          const botiquin = parseCost(costosData.botiquin);
+          const equipamiento = parseCost(costosData.equipamiento);
+          const pesaje = parseCost(costosData.pesaje);
+          
+          // Calcular total sumando todos los conceptos
+          const total = inscripcion + coaching + tunel + botiquin + equipamiento + pesaje;
+  
+          const pagosJugador = {
+            jugadorId: docRef.id,
+            nombre: nombreCompleto,
+            categoria: formData.categoria,
+            pagos: [
+              {
+                tipo: 'Inscripción',
+                beca: '0',
+                descuento: '0',
+                estatus: 'pendiente',
+                fecha_pago: null,
+                submonto: 0,
+                monto: inscripcion,
+                prorroga: false,
+                fecha_limite: fechaLimite.toISOString().split('T')[0],
+                metodo_pago: null,
+                abono: 'NO',
+                abonos: [],
+                total_abonado: 0
+              },
+              {
+                tipo: 'Coaching',
+                estatus: 'pendiente',
+                fecha_pago: null,
+                fecha_limite: null,
+                monto: coaching,
+                metodo_pago: null,
+                abono: 'NO',
+                abonos: [],
+                total_abonado: 0
+              },
+              {
+                tipo: 'Túnel',
+                estatus: 'pendiente',
+                fecha_pago: null,
+                monto: tunel,
+                metodo_pago: null,
+                abono: 'NO',
+                abonos: [],
+                total_abonado: 0
+              },
+              {
+                tipo: 'Botiquín',
+                estatus: 'pendiente',
+                fecha_pago: null,
+                monto: botiquin,
+                metodo_pago: null,
+                abono: 'NO',
+                abonos: [],
+                total_abonado: 0
+              },
+              {
+                tipo: 'Equipamiento',
+                estatus: 'pendiente',
+                fecha_pago: null,
+                fecha_limite: null,
+                monto: equipamiento,
+                metodo_pago: null,
+                abono: 'NO',
+                abonos: [],
+                total_abonado: 0
+              },
+              {
+                tipo: 'Pesaje',
+                estatus: 'pendiente',
+                fecha_pago: null,
+                monto: pesaje,
+                metodo_pago: null,
+                abono: 'NO',
+                abonos: [],
+                total_abonado: 0
+              }
+            ],
+            monto_total_pagado: 0,
+            monto_total_pendiente: total,
+            monto_total: total,
+            fecha_registro: fechaActual.toISOString().split('T')[0],
+            temporadaId: temporadaActiva?.value || costosData.temporadaId?.value || null
+          };
+          await addDoc(collection(db, 'pagos_jugadores'), pagosJugador);
         }
   
-        Alert.alert('Éxito', 'Registro completado correctamente');
+        Alert.alert('Éxito', 'Registro completado correctamente, recuerda que seguir los pasos enviados a tu correo electronico para completar la inscripción');
         navigation.navigate('MainTabs');
       } catch (error) {
         console.error('Error en handleSubmit:', error);
@@ -397,133 +427,6 @@ const HomeScreen = ({ navigation }) => {
       }
     }
   };
-  
-  // Función para crear pagos de jugador
-  const createPagoJugador = async (
-    jugadorId,
-    nombreJugador,
-    temporadaId,
-    categoria,
-    costosData
-  ) => {
-    const actuallyDate = new Date();
-    const fechaLimite = new Date();
-    fechaLimite.setDate(fechaLimite.getDate() + 7); // 1 semana después
-  
-    // Convertir los valores de cadena a números
-    const parseCost = (value) => parseInt(value || '0', 10);
-    
-    const inscripcion = parseCost(costosData.inscripcion);
-    const equipamiento = parseCost(costosData.equipamiento);
-    const pesaje = parseCost(costosData.pesaje);
-    const total = inscripcion + equipamiento + pesaje;
-  
-    const pagosIniciales = {
-      jugadorId,
-      nombre: nombreJugador,
-      temporadaId,
-      categoria,
-      pagos: [
-        {
-          tipo: 'Inscripción',
-          beca: '0',
-          descuento: '0',
-          estatus: 'pendiente',
-          fecha_pago: null,
-          submonto: 0,
-          monto: inscripcion,
-          prorroga: false,
-          fecha_limite: fechaLimite.toISOString().split('T')[0],
-          metodo_pago: null,
-          abono: 'NO',
-          abonos: [],
-          total_abonado: 0
-        },
-        {
-          tipo: 'Equipamiento',
-          estatus: 'pendiente',
-          fecha_pago: null,
-          fecha_limite: null,
-          monto: equipamiento,
-          metodo_pago: null,
-          abono: 'NO',
-          abonos: [],
-          total_abonado: 0
-        },
-        {
-          tipo: 'Pesaje',
-          estatus: 'pendiente',
-          fecha_pago: null,
-          monto: pesaje,
-          metodo_pago: null,
-          abono: 'NO',
-          abonos: [],
-          total_abonado: 0
-        }
-      ],
-      monto_total_pagado: 0,
-      monto_total_pendiente: total,
-      monto_total: total,
-      fecha_registro: actuallyDate.toISOString().split('T')[0]
-    };
-  
-    await addDoc(collection(db, 'pagos_jugadores'), pagosIniciales);
-  };
-  
-  // Función para crear pagos de porrista
-  const createPagoPorrista = async (
-    porristaId,
-    nombrePorrista,
-    temporadaId,
-    costosData
-  ) => {
-    const actuallyDate = new Date();
-    const fechaLimite = new Date();
-    fechaLimite.setDate(fechaLimite.getDate() + 7); // 1 semana después
-  
-    // Convertir los valores de cadena a números
-    const parseCost = (value) => parseInt(value || '0', 10);
-    
-    const inscripcion = parseCost(costosData.inscripcion);
-    const coaching = parseCost(costosData.coaching);
-    const total = inscripcion + coaching;
-  
-    const pagosIniciales = {
-      porristaId,
-      nombre: nombrePorrista,
-      temporadaId,
-      pagos: [
-        {
-          tipo: 'Inscripción',
-          estatus: 'pendiente',
-          fecha_pago: null,
-          monto: inscripcion,
-          metodo_pago: null,
-          abono: 'NO',
-          abonos: [],
-          total_abonado: 0,
-          fecha_limite: fechaLimite.toISOString().split('T')[0]
-        },
-        {
-          tipo: 'Coaching',
-          estatus: 'pendiente',
-          fecha_pago: null,
-          monto: coaching,
-          metodo_pago: null,
-          abono: 'NO',
-          abonos: [],
-          total_abonado: 0,
-          fecha_limite: null
-        }
-      ],
-      monto_total_pagado: 0,
-      monto_total_pendiente: total,
-      monto_total: total,
-      fecha_registro: actuallyDate.toISOString().split('T')[0]
-    };
-  
-    await addDoc(collection(db, 'pagos_porristas'), pagosIniciales);
-  };
 
   const renderForm = () => {
     switch (steps[currentStep]) {
@@ -532,7 +435,7 @@ const HomeScreen = ({ navigation }) => {
       case 'TipoInscripcionForm':
         return <TipoInscripcionForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} navigation={navigation} />;
       case 'DatosPersonalesForm':
-        return <DatosPersonalesForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
+        return <DatosPersonalesForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} db={db} />;
       case 'DatosContactoForm':
         return <DatosContactoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
       case 'DatosEscolaresMedicosForm':
@@ -540,15 +443,13 @@ const HomeScreen = ({ navigation }) => {
       case 'TransferenciaForm':
         return <TransferenciaForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
       case 'FirmaFotoForm':
-        return <FirmaFotoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} signatureRef={signatureRef} />;
-      case 'DocumentacionForm':
-        return <DocumentacionForm 
+        return <FirmaFotoForm 
           formData={formData} 
           setFormData={setFormData} 
-          onSubmit={handleSubmit} 
-          uploadProgress={uploadProgress}
-          currentUpload={currentUpload}
-          handleSelectFile={handleSelectFile}
+          errors={errors} 
+          onNext={handleSubmit} 
+          acceptedRegulation={acceptedRegulation}
+          setAcceptedRegulation={setAcceptedRegulation}
         />;
       default:
         return null;
@@ -818,25 +719,86 @@ const TipoInscripcionForm = ({ formData, setFormData, errors, onNext, navigation
   );
 };
 
-// Componente DatosPersonalesForm
-const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
+// Componente DatosPersonalesForm modificado para consultar categorías desde Firestore
+const DatosPersonalesForm = ({ formData, setFormData, errors, onNext, db }) => {
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
   const [dateInputValue, setDateInputValue] = useState(
     formData.fecha_nacimiento ? new Date(formData.fecha_nacimiento).toISOString().split('T')[0] : ''
   );
+  const [loadingCategoria, setLoadingCategoria] = useState(false);
+  const [temporadaInfo, setTemporadaInfo] = useState(null);
 
-  // Actualizar categoría cuando cambia la fecha o el sexo
+  // Función para determinar la categoría basada en la fecha de nacimiento y sexo
+  const determinarCategoria = async (fechaNacimiento, sexo) => {
+    if (!fechaNacimiento || !sexo) return;
+    
+    setLoadingCategoria(true);
+    try {
+      const fechaNac = new Date(fechaNacimiento);
+      
+      // Consultar todas las categorías para el sexo especificado
+      const categoriasRef = collection(db, 'categorias');
+      const q = query(categoriasRef, where('sexo', '==', sexo));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        console.log('No se encontraron categorías para el sexo especificado');
+        setFormData(prev => ({ 
+          ...prev, 
+          categoria: 'NC',
+          temporadaId: null
+        }));
+        setTemporadaInfo(null);
+        return;
+      }
+      
+      let categoriaAsignada = 'NC'; // Por defecto si no encuentra categoría
+      let tempTemporadaInfo = null;
+      
+      querySnapshot.forEach((doc) => {
+        const categoriaData = doc.data();
+        
+        // Convertir las fechas de string a objetos Date
+        const fechaInicio = new Date(categoriaData.fecha_inicio);
+        const fechaFin = new Date(categoriaData.fecha_fin);
+        
+        // Verificar si la fecha de nacimiento está dentro del rango
+        if (fechaNac >= fechaInicio && fechaNac <= fechaFin) {
+          categoriaAsignada = categoriaData.nombre_categoria;
+          tempTemporadaInfo = {
+            nombre: categoriaData.temporada,
+            id: categoriaData.temporadaId
+          };
+        }
+      });
+      
+      setFormData(prev => ({ 
+        ...prev, 
+        categoria: categoriaAsignada,
+        temporadaId: tempTemporadaInfo?.id || null
+      }));
+      
+      setTemporadaInfo(tempTemporadaInfo);
+    } catch (error) {
+      console.error('Error al determinar categoría:', error);
+      setFormData(prev => ({ 
+        ...prev, 
+        categoria: 'NC',
+        temporadaId: null
+      }));
+      setTemporadaInfo(null);
+    } finally {
+      setLoadingCategoria(false);
+    }
+  };
+
   useEffect(() => {
     if (formData.fecha_nacimiento && formData.sexo) {
-      const fechaFormateada = formData.fecha_nacimiento.toISOString().split('T')[0];
-      const resultado = obtenerCategoria(formData.sexo, fechaFormateada);
-      console.log(resultado);
-      setFormData(prev => ({ ...prev, categoria: resultado }));
+      determinarCategoria(formData.fecha_nacimiento, formData.sexo);
     }
   }, [formData.fecha_nacimiento, formData.sexo]);
 
-  // Función para manejar cambio de fecha en móvil
   const onChangeMobile = (event, selectedDate) => {
     setShowPicker(false);
     if (selectedDate) {
@@ -844,7 +806,6 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
     }
   };
 
-  // Función para actualizar la fecha de forma segura
   const updateDate = (newDate) => {
     const validDate = new Date(newDate);
     if (isNaN(validDate.getTime())) return;
@@ -854,7 +815,6 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
     setFormData({ ...formData, fecha_nacimiento: validDate });
   };
 
-  // Manejador para input de fecha en web
   const handleWebDateChange = (e) => {
     const value = e.target.value;
     setDateInputValue(value);
@@ -867,12 +827,18 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
     }
   };
 
-  // Formateador de fecha seguro
   const formatDate = (dateObj) => {
     if (!dateObj || isNaN(new Date(dateObj).getTime())) return 'Fecha inválida';
     
     const options = { year: 'numeric', month: 'long', day: 'numeric' };
     return new Date(dateObj).toLocaleDateString('es-MX', options);
+  };
+
+  // Función para validar formato de CURP
+  const validateCurp = (curp) => {
+    if (!curp) return true; // No es requerido en esta validación
+    const regex = /^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/;
+    return regex.test(curp.toUpperCase());
   };
 
   return (
@@ -909,6 +875,32 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
               onChangeText={(text) => setFormData({ ...formData, apellido_m: text })}
             />
             {errors.apellido_m && <Text style={styles.errorText}>{errors.apellido_m}</Text>}
+
+            {/* Nuevo campo CURP */}
+            <TextInput
+              style={styles.input}
+              placeholder="CURP (18 caracteres)"
+              value={formData.curp}
+              onChangeText={(text) => {
+                setFormData({ ...formData, curp: text.toUpperCase() });
+                // Validación en tiempo real
+                if (text && !validateCurp(text)) {
+                  setFormData(prev => ({ 
+                    ...prev, 
+                    curpError: 'Formato de CURP inválido' 
+                  }));
+                } else {
+                  setFormData(prev => ({ 
+                    ...prev, 
+                    curpError: null 
+                  }));
+                }
+              }}
+              maxLength={18}
+              autoCapitalize="characters"
+            />
+            {errors.curp && <Text style={styles.errorText}>{errors.curp}</Text>}
+            {formData.curpError && <Text style={styles.errorText}>{formData.curpError}</Text>}
 
             <Text style={styles.label}>Fecha de Nacimiento:</Text>
             
@@ -947,17 +939,28 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
               Fecha seleccionada: {formatDate(date)}
             </Text>
 
-            {/* Mostrar categoría asignada */}
-            {formData.categoria && (
+            {loadingCategoria ? (
+              <View style={styles.categoriaContainer}>
+                <ActivityIndicator size="small" color="#0000ff" />
+                <Text style={styles.categoriaText}>Determinando categoría...</Text>
+              </View>
+            ) : formData.categoria ? (
               <View style={styles.categoriaContainer}>
                 <Text style={styles.categoriaText}>
                   Categoría asignada: <Text style={styles.categoriaValue}>{formData.categoria}</Text>
                 </Text>
+                
+                {temporadaInfo && (
+                  <Text style={styles.temporadaText}>
+                    Temporada: <Text style={styles.temporadaValue}>{temporadaInfo.nombre}</Text>
+                  </Text>
+                )}
+                
                 {formData.categoria === 'NC' && (
-                  <Text style={styles.categoriaNota}>*El jugador está fuera de los rangos de edad (2008-2020)</Text>
+                  <Text style={styles.categoriaNota}>*El jugador está fuera de los rangos de edad permitidos</Text>
                 )}
               </View>
-            )}
+            ) : null}
 
             <TextInput
               style={styles.input}
@@ -966,22 +969,6 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
               onChangeText={(text) => setFormData({ ...formData, lugar_nacimiento: text })}
             />
             {errors.lugar_nacimiento && <Text style={styles.errorText}>{errors.lugar_nacimiento}</Text>}
-
-            <TextInput
-              style={styles.input}
-              placeholder="CURP (EN MAYUSCULAS)"
-              value={formData.curp}
-              onChangeText={(text) => setFormData({ ...formData, curp: text.toUpperCase() })}
-              maxLength={18}
-            />
-            {errors.curp && <Text style={styles.errorText}>{errors.curp}</Text>}
-
-            <TouchableOpacity 
-              onPress={() => Linking.openURL('https://www.gob.mx/curp/')} 
-              style={styles.linkContainer}
-            >
-              <Text style={styles.linkText}>¿No sabes tu CURP? Consúltala aquí</Text>
-            </TouchableOpacity>
 
             <TouchableOpacity style={styles.button} onPress={onNext}>
               <Text style={styles.buttonText}>Continuar</Text>
@@ -1149,13 +1136,9 @@ const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
 };
 
 // Componente FirmaFotoForm
-const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) => {
-  const [paths, setPaths] = useState([]);
-  const [currentPath, setCurrentPath] = useState([]);
-  const [isDrawing, setIsDrawing] = useState(false);
+const FirmaFotoForm = ({ formData, setFormData, errors, onNext, acceptedRegulation, setAcceptedRegulation }) => {
   const [hasCameraPermission, setHasCameraPermission] = useState(null);
   const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     (async () => {
@@ -1165,48 +1148,6 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
       setHasGalleryPermission(galleryStatus.status === 'granted');
     })();
   }, []);
-
-  const handleLayout = (event) => {
-    const { width, height } = event.nativeEvent.layout;
-    setDimensions({ width, height });
-  };
-
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: (event, gestureState) => {
-      const { locationX, locationY } = event.nativeEvent;
-      setIsDrawing(true);
-      setCurrentPath([{ x: locationX, y: locationY }]);
-    },
-    onPanResponderMove: (event, gestureState) => {
-      if (!isDrawing) return;
-      const { locationX, locationY } = event.nativeEvent;
-      setCurrentPath((prevPath) => [...prevPath, { x: locationX, y: locationY }]);
-    },
-    onPanResponderRelease: () => {
-      setIsDrawing(false);
-      setPaths((prevPaths) => [...prevPaths, currentPath]);
-      setCurrentPath([]);
-      setFormData(prev => ({ ...prev, firma: [...prev.firma, ...currentPath] }));
-    },
-    onPanResponderTerminate: () => {
-      setIsDrawing(false);
-    }
-  });
-
-  const getPathData = (path) => {
-    if (path.length === 0) return '';
-    return path
-      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-      .join(' ');
-  };
-
-  const clearCanvas = () => {
-    setPaths([]);
-    setCurrentPath([]);
-    setFormData(prev => ({ ...prev, firma: [] }));
-  };
 
   const handleSelectFoto = async () => {
     if (!hasGalleryPermission) {
@@ -1261,52 +1202,12 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
     >
       <ScrollView 
         contentContainerStyle={styles.scrollContainer}
-        scrollEnabled={!isDrawing}
         keyboardShouldPersistTaps="handled"
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.formContainer}>
-            <Text style={styles.title}>Firma y Foto</Text>
+            <Text style={styles.title}>Foto del Jugador</Text>
             
-            <Text style={styles.sectionTitle}>Firma:</Text>
-            <View 
-              style={styles.signatureContainer} 
-              {...panResponder.panHandlers}
-              onLayout={handleLayout}
-            >
-              <Svg 
-                style={styles.canvas} 
-                ref={signatureRef}
-                width={dimensions.width}
-                height={dimensions.height}
-              >
-                {paths.map((path, index) => (
-                  <Path
-                    key={`path-${index}`}
-                    d={getPathData(path)}
-                    stroke="black"
-                    strokeWidth={3}
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                ))}
-                <Path
-                  d={getPathData(currentPath)}
-                  stroke="black"
-                  strokeWidth={3}
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </Svg>
-            </View>
-            <TouchableOpacity style={styles.secondaryButton} onPress={clearCanvas}>
-              <Text style={styles.secondaryButtonText}>Limpiar Firma</Text>
-            </TouchableOpacity>
-            {errors.firma && <Text style={styles.errorText}>{errors.firma}</Text>}
-            
-            <Text style={styles.sectionTitle}>Foto del Jugador:</Text>
             {formData.foto_jugador && (
               <Image
                 source={{ uri: formData.foto_jugador }}
@@ -1323,78 +1224,6 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
             </View>
             {errors.foto_jugador && <Text style={styles.errorText}>{errors.foto_jugador}</Text>}
             
-            <TouchableOpacity style={styles.button} onPress={onNext}>
-              <Text style={styles.buttonText}>Continuar</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableWithoutFeedback>
-      </ScrollView>
-    </KeyboardAvoidingView>
-  );
-};
-
-// Componente DocumentacionForm
-const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, currentUpload, handleSelectFile }) => {
-  const [acceptedRegulation, setAcceptedRegulation] = useState(false);
-
-  const renderFileInfo = (field) => {
-    const doc = formData.documentos[field];
-    if (!doc || !doc.uri) return null;
-
-    return (
-      <View style={styles.fileInfoContainer}>
-        <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">
-          {doc.name || 'Archivo seleccionado'}
-        </Text>
-        
-        {currentUpload === field ? (
-          <View style={styles.uploadStatus}>
-            <ActivityIndicator size="small" color="#007AFF" />
-            <Text style={styles.uploadProgressText}>
-              {Math.round(uploadProgress[field] || 0)}%
-            </Text>
-          </View>
-        ) : (
-          <Text style={styles.uploadPendingText}>Listo para subir</Text>
-        )}
-      </View>
-    );
-  };
-
-  return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.formContainer}
-      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView contentContainerStyle={styles.scrollContainer}>
-          <View style={styles.formContainer}>
-            <Text style={styles.title}>Documentación Requerida</Text>
-            
-            {['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'].map((field) => (
-              <View key={field} style={styles.formGroup}>
-                <Text style={styles.label}>
-                  {field === 'ine_tutor' && 'INE del Tutor'}
-                  {field === 'curp_jugador' && 'CURP del Jugador'}
-                  {field === 'acta_nacimiento' && 'Acta de Nacimiento'}
-                  {field === 'comprobante_domicilio' && 'Comprobante de Domicilio'}
-                </Text>
-                
-                <TouchableOpacity 
-                  style={styles.uploadButton}
-                  onPress={() => handleSelectFile(field)}
-                  disabled={!!currentUpload}
-                >
-                  <Text style={styles.buttonText}>
-                    {formData.documentos[field]?.uri ? 'Reemplazar archivo' : 'Seleccionar archivo'}
-                  </Text>
-                </TouchableOpacity>
-                
-                {renderFileInfo(field)}
-              </View>
-            ))}
-
             {/* Sección de aceptación del reglamento */}
             <View style={styles.regulationContainer}>
               <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
@@ -1417,23 +1246,22 @@ const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, cu
                   Confirmo que he leído y acepto el reglamento del equipo
                 </Text>
               </View>
+              {errors.regulation && <Text style={styles.errorText}>{errors.regulation}</Text>}
             </View>
 
             <TouchableOpacity 
               style={[
-                styles.submitButton,
-                (!acceptedRegulation || currentUpload) && styles.disabledButton
+                styles.button,
+                (!acceptedRegulation || !formData.foto_jugador) && styles.disabledButton
               ]} 
-              onPress={onSubmit}
-              disabled={!acceptedRegulation || !!currentUpload}
+              onPress={onNext}
+              disabled={!acceptedRegulation || !formData.foto_jugador}
             >
-              <Text style={styles.submitButtonText}>
-                {currentUpload ? 'Subiendo archivos...' : 'Finalizar Registro'}
-              </Text>
+              <Text style={styles.buttonText}>Finalizar Registro</Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
-      </TouchableWithoutFeedback>
+        </TouchableWithoutFeedback>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 };
@@ -1763,6 +1591,38 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#495057',
     flex: 1,
+  },
+  categoriaContainer: {
+    marginTop: 10,
+    marginBottom: 15,
+    padding: 10,
+    backgroundColor: '#f0f8ff',
+    borderRadius: 5,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4682b4',
+  },
+  categoriaText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  categoriaValue: {
+    fontWeight: 'bold',
+    color: '#2e8b57',
+  },
+  categoriaNota: {
+    fontSize: 14,
+    color: '#ff8c00',
+    marginTop: 5,
+    fontStyle: 'italic',
+  },
+  temporadaText: {
+    fontSize: 16,
+    marginTop: 5,
+    color: '#333',
+  },
+  temporadaValue: {
+    fontWeight: 'bold',
+    color: '#2c3e50',
   },
 });
 

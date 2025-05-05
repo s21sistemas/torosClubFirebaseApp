@@ -210,10 +210,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   inputError: {
-    borderColor: '#FF3B30',
+    borderColor: '#ffbe00',
   },
   errorText: {
-    color: '#FF3B30',
+    color: '#ffbe00',
     fontSize: 12,
     marginBottom: 15,
     marginLeft: 15,

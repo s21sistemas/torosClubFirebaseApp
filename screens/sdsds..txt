@@ -1,774 +1,121 @@
-// linea para crear el apk 
-eas build --platform android --profile preview 
-
-//correr el proyecto borrando el cachew
-npx expo start -c 
-
-import React, { useState, useRef,useEffect } from 'react';
-import {
-  View,
-  Pressable,
-  Button,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  TextInput,
-  Animated,
-  Platform,
-  PanResponder,
-  Linking,
-  ActivityIndicator,
-  Image
-} from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Picker } from '@react-native-picker/picker';
-import * as ImagePicker from 'expo-image-picker';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import axios from 'axios';
-import Svg, { Path } from 'react-native-svg';
-
-const HomeScreen = ({ navigation }) => {
-  const [currentStep, setCurrentStep] = useState(0); // Paso actual del formulario
-
-  const [formData, setFormData] = useState({
-    nombre: '',
-    apellido_p: '',
-    apellido_m: '',
-    sexo: '',
-    direccion: '',
-    telefono: '',
-    fecha_nacimiento: new Date(),
-    lugar_nacimiento: '',
-    curp: '',
-    grado_escolar: '',
-    nombre_escuela: '',
-    alergias: '',
-    padecimientos: '',
-    peso: '',
-    tipo_inscripcion: '',
-    foto_jugador: null,
-    firma: null,
-  });
-
-  const [errors, setErrors] = useState({}); // Errores de validación
-  const fadeAnim = useRef(new Animated.Value(1)).current; // Animación de transición
-  const [signaturePaths, setSignaturePaths] = useState([]); // Almacena los trazos de la firma
-  const signatureRef = useRef(null); // Referencia al área de dibujo
-
-
-  // Pasos del formulario
-  const steps = [
-    'GeneroForm',
-    'TipoInscripcionForm',
-    'DatosPersonalesForm',
-    'DatosContactoForm',
-    'DatosEscolaresMedicosForm',
-    'FirmaFotoForm',
-  ];
-
-  // Validación del formulario actual
-  const validateForm = () => {
-    const newErrors = {};
-    switch (steps[currentStep]) {
-      case 'GeneroForm':
-        if (!formData.sexo) newErrors.sexo = 'Selecciona un género';
-        break;
-      case 'TipoInscripcionForm':
-        if (!formData.tipo_inscripcion) newErrors.tipo_inscripcion = 'Selecciona un tipo de inscripción';
-        break;
-      case 'DatosPersonalesForm':
-        if (!formData.nombre) newErrors.nombre = 'Ingresa el nombre';
-        if (!formData.apellido_p) newErrors.apellido_p = 'Ingresa el apellido paterno';
-        if (!formData.apellido_m) newErrors.apellido_m = 'Ingresa el apellido materno';
-        if (!formData.fecha_nacimiento) newErrors.fecha_nacimiento = 'Ingresa la fecha de nacimiento';
-        if (!formData.lugar_nacimiento) newErrors.lugar_nacimiento = 'Ingresa el lugar de nacimiento';
-        if (!formData.curp) newErrors.curp = 'Ingresa la CURP';
-        else if (!/^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z\d]\d$/.test(formData.curp)) {
-          newErrors.curp = 'La CURP no es válida';
-        }
-        break;
-      case 'DatosContactoForm':
-        if (!formData.direccion) newErrors.direccion = 'Ingresa la dirección';
-        if (!formData.telefono) newErrors.telefono = 'Ingresa el teléfono';
-        break;
-      case 'DatosEscolaresMedicosForm':
-        if (!formData.grado_escolar) newErrors.grado_escolar = 'Selecciona el grado escolar';
-        if (!formData.nombre_escuela) newErrors.nombre_escuela = 'Ingresa el nombre de la escuela';
-        if (!formData.peso) newErrors.peso = 'Ingresa el peso';
-        break;
-      case 'FirmaFotoForm':
-        if (!formData.foto_jugador) newErrors.foto_jugador = 'Sube la foto del jugador';
-        break;
-      default:
-        break;
-    }
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0; // Retorna true si no hay errores
-  };
-
-  // Obtener token desde AsyncStorage
-  const getToken = async () => {
-    try {
-      const token = await AsyncStorage.getItem('token');
-      return token;
-    } catch (error) {
-      console.error('Error al obtener el token:', error);
-      return null;
-    }
-  };
-
-  // Avanzar al siguiente paso
-  const handleNextStep = () => {
-    if (validateForm()) {
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(() => {
-        setCurrentStep((prev) => prev + 1); // Avanzar al siguiente paso
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }).start();
-      });
-    }
-  };
-
-  // Retroceder al paso anterior
-  const handlePreviousStep = () => {
-    Animated.timing(fadeAnim, {
-      toValue: 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => {
-      setCurrentStep((prev) => prev - 1);
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-    });
-  };
-
-  // Enviar el formulario
   const handleSubmit = async () => {
     if (validateForm()) {
-      const token = await getToken();
+      setLoading(true);
       try {
-        const formDataToSend = new FormData();
-
-        // Agrega los campos al FormData
-        formDataToSend.append('nombre', formData.nombre);
-        formDataToSend.append('apellido_p', formData.apellido_p);
-        formDataToSend.append('apellido_m', formData.apellido_m);
-        formDataToSend.append('sexo', formData.sexo);
-        formDataToSend.append('direccion', formData.direccion);
-        formDataToSend.append('telefono', formData.telefono);
-        formDataToSend.append('fecha_nacimiento', formData.fecha_nacimiento.toISOString());
-        formDataToSend.append('lugar_nacimiento', formData.lugar_nacimiento);
-        formDataToSend.append('curp', formData.curp);
-        formDataToSend.append('grado_escolar', formData.grado_escolar);
-        formDataToSend.append('nombre_escuela', formData.nombre_escuela);
-        formDataToSend.append('alergias', formData.alergias);
-        formDataToSend.append('padecimientos', formData.padecimientos);
-        formDataToSend.append('peso', formData.peso);
-        formDataToSend.append('tipo_inscripcion', formData.tipo_inscripcion);
-       formDataToSend.append('foto_jugador', formData.foto_jugador);
-       
-        console.log(formData.foto_jugador);
-       
-       console.log(formDataToSend);
+        const auth = getAuth();
+        const user = auth.currentUser;
+        const uid = user?.uid;
+        if (!uid) throw new Error('No se pudo obtener el UID del usuario.');
   
-        // Envía el FormData al servidor usando fetch
-        const response = await fetch('https://sistema.clubtoros.com/api/registro-jugadores', {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json', 
-            'Authorization': `Bearer ${token}`, 
+        // Subir archivos (devuelven URLs directas)
+        const [fotoJugadorURL, firmaURL] = await Promise.all([
+          formData.foto_jugador ? uploadFile(formData.foto_jugador, 'foto_jugador.jpg', 'fotos') : null,
+          formData.firma.length > 0 ? (async () => {
+            const firmaDataURL = await captureSignature();
+            return firmaDataURL ? uploadFile(firmaDataURL, 'firma.png', 'firmas') : null;
+          })() : null
+        ]);
+  
+        // Subir documentos (solo URLs)
+        const documentosSubidos = {};
+        const documentosFields = ['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'];
+        
+        await Promise.all(documentosFields.map(async (field) => {
+          if (formData.documentos[field]?.uri) {
+            documentosSubidos[field] = await uploadFile(
+              formData.documentos[field].uri,
+              formData.documentos[field].name || `${field}.pdf`,
+              'documentos'
+            );
+          }
+        }));
+  
+        // Crear registro principal
+        const datosRegistro = {
+          nombre: formData.nombre,
+          apellido_p: formData.apellido_p,
+          apellido_m: formData.apellido_m,
+          sexo: formData.sexo,
+          categoria: formData.categoria,
+          direccion: formData.direccion,
+          telefono: formData.telefono,
+          fecha_nacimiento: formData.fecha_nacimiento.toISOString().split('T')[0],
+          lugar_nacimiento: formData.lugar_nacimiento,
+          curp: formData.curp,
+          grado_escolar: formData.grado_escolar,
+          nombre_escuela: formData.nombre_escuela,
+          alergias: formData.alergias,
+          padecimientos: formData.padecimientos,
+          peso: formData.peso,
+          tipo_inscripcion: formData.tipo_inscripcion,
+          foto: fotoJugadorURL,
+          rol_id: 'WpOj1dwyls3R7rfgVRZA',
+          documentos: {
+            ine_tutor: documentosSubidos.ine_tutor || null,
+            curp_jugador: documentosSubidos.curp_jugador || null,
+            acta_nacimiento: documentosSubidos.acta_nacimiento || null,
+            comprobante_domicilio: documentosSubidos.comprobante_domicilio || null,
+            firma: firmaURL || null
           },
-          body: formDataToSend, 
-        });
-        //await AsyncStorage.setItem('registro', JSON.stringify(formData));w
-        if (response.ok) {
-          const data = await response.json(); 
-          console.log(data);
-          // Parsea la respuesta como JSON
-          Alert.alert('Éxito', 'Registro completado correctamente');
-          navigation.navigate('MainTabs');
-        } else {
-          const errorData = await response.json();
-          console.error('Error en la respuesta del servidor:', errorData);
-          Alert.alert('Error', errorData.message || 'No se pudo completar el registro');
-        }
+          activo: 'activo',
+          numero_mfl: formData.numero_mfl,
+          fecha_registro: new Date(),
+          uid: uid,
+          ...(formData.tipo_inscripcion === 'transferencia' && {
+            transferencia: formData.transferencia
+          })
+        };
+  
+        // Guardar en colección principal
+        const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
+        const docRef = await addDoc(collection(db, coleccion), datosRegistro);
+  
+        // Obtener costos según el tipo de inscripción (solo el primer documento)
+        const costosCollection = formData.tipo_inscripcion === 'porrista' ? 'costos-porrista' : 'costos-jugador';
+        const costosQuery = collection(db, costosCollection);
+        const costosSnapshot = await getDocs(costosQuery);
         
-      } catch (err) {
-        console.error('Error al enviar el formulario:', err);
-        if (err.response) {
-          console.error('Respuesta del servidor:', err.response.data); 
-          console.error('Mensaje de error:', err.response.data.message); 
-          Alert.alert('Error', err.response.data.message || 'No se pudo completar el registro');
-        } else if (err.request) {
-          console.error('No se recibió respuesta del servidor:', err.request);
-          Alert.alert('Error', 'No se recibió respuesta del servidor');
-        } else {
-          console.error('Error en la configuración de la solicitud:', err.message); 
-          Alert.alert('Error', 'Error en la configuración de la solicitud');
+        if (costosSnapshot.empty) {
+          throw new Error(`No se encontraron costos configurados para ${formData.tipo_inscripcion}`);
         }
-        Alert.alert('Error', 'No se pudo completar el registro');
+  
+        // Tomamos el primer documento (único documento en la colección)
+        const costosDoc = costosSnapshot.docs[0];
+        const costosData = costosDoc.data();
+  
+        // Crear nombre completo para los pagos
+        const nombreCompleto = `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`;
+  
+        // Crear registros de pagos según el tipo de inscripción
+        if (formData.tipo_inscripcion === 'porrista') {
+          await createPagoPorrista(
+            docRef.id,
+            nombreCompleto,
+            costosData.temporadaId,
+            costosData
+          );
+        } else {
+          await createPagoJugador(
+            docRef.id,
+            nombreCompleto,
+            costosData.temporadaId,
+            formData.categoria,
+            costosData
+          );
+        }
+  
+        Alert.alert('Éxito', 'Registro completado correctamente');
+        navigation.navigate('MainTabs');
+      } catch (error) {
+        console.error('Error en handleSubmit:', error);
+        Alert.alert('Error', error.message || 'Error al completar el registro');
+      } finally {
+        setLoading(false);
+        setCurrentUpload(null);
       }
     }
   };
 
-  // Renderizar el formulario actual
-  const renderForm = () => {
-    switch (steps[currentStep]) {
-      case 'GeneroForm':
-        return <GeneroForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
-      case 'TipoInscripcionForm':
-        return <TipoInscripcionForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
-      case 'DatosPersonalesForm':
-        return <DatosPersonalesForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
-      case 'DatosContactoForm':
-        return <DatosContactoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
-      case 'DatosEscolaresMedicosForm':
-        return <DatosEscolaresMedicosForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
-      case 'FirmaFotoForm':
-        return <FirmaFotoForm formData={formData} setFormData={setFormData} errors={errors} onSubmit={handleSubmit} />;
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <View style={styles.container}>
-      <Animated.View style={{ opacity: fadeAnim, flex: 1 }}>
-        {renderForm()}
-      </Animated.View>
-      {currentStep > 0 && (
-        <TouchableOpacity style={styles.backButton} onPress={handlePreviousStep}>
-          <Text style={styles.backButtonText}>Atrás</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-};
-
-// Componentes de los formularios
-
-// 1. Formulario de Género
-const GeneroForm = ({ formData, setFormData, errors, onNext }) => {
-  return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>¿Registrarás a un hombre o mujer?</Text>
-      <Picker
-        selectedValue={formData.sexo}
-        onValueChange={(itemValue) => setFormData({ ...formData, sexo: itemValue })}
-        style={styles.picker}
-      >
-        <Picker.Item label="Selecciona un género" value="" />
-        <Picker.Item label="Hombre" value="hombre" />
-        <Picker.Item label="Mujer" value="mujer" />
-      </Picker>
-      {errors.sexo && <Text style={styles.errorText}>{errors.sexo}</Text>}
-      <TouchableOpacity style={styles.button} onPress={onNext}>
-        <Text style={styles.buttonText}>Continuar</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
-
-// 2. Formulario de Tipo de Inscripción
-const TipoInscripcionForm = ({ formData, setFormData, errors, onNext }) => {
-  return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Tipo de Inscripción</Text>
-      <Picker
-        selectedValue={formData.tipo_inscripcion}
-        onValueChange={(itemValue) => setFormData({ ...formData, tipo_inscripcion: itemValue })}
-        style={styles.picker}
-      >
-        <Picker.Item label="Selecciona un tipo de inscripción" value="" />
-        <Picker.Item label="Novato" value="novato" />
-        <Picker.Item label="Reinscripción" value="reinscripcion" />
-        <Picker.Item label="Transferencia" value="transferencia" />
-        <Picker.Item label="Porrista" value="porrista" />
-      </Picker>
-      {errors.tipo_inscripcion && <Text style={styles.errorText}>{errors.tipo_inscripcion}</Text>}
-      <TouchableOpacity style={styles.button} onPress={onNext}>
-        <Text style={styles.buttonText}>Continuar</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
-
-// 3. Formulario de Datos Personales
-const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
-  const [date, setDate] = useState(new Date()); 
-  const [showPicker, setShowPicker] = useState(false); 
-
-  // Función para manejar el cambio de fecha en móvil
-  const onChangeMobile = (event, selectedDate) => {
-    setShowPicker(false); 
-    if (selectedDate) {
-      setDate(selectedDate); 
-    }
-  };
-
-  // Función para manejar el cambio de fecha en web
-  const onChangeWeb = (event) => {
-    setDate(new Date(event.target.value)); 
-    setFormData({ ...formData, fecha_nacimiento: date });
-  };
-
-  // Función para manejar el cambio de fecha en movil
-  const onChangeFechaNacimiento = (event, selectedDate) => {
-    setShowDatePicker(false);
-    if (selectedDate) {
-      setFormData({ ...formData, fecha_nacimiento: selectedDate });
-    }
-  };
-
-  // Función para manejar el cambio de fecha en web
-  const handleWebDateChange = (date) => {
-    setFormData({ ...formData, fecha_nacimiento: date });
-  };
-
-  return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Datos Personales</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Nombre"
-        value={formData.nombre}
-        onChangeText={(text) => setFormData({ ...formData, nombre: text })}
-      />
-      {errors.nombre && <Text style={styles.errorText}>{errors.nombre}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Apellido Paterno"
-        value={formData.apellido_p}
-        onChangeText={(text) => setFormData({ ...formData, apellido_p: text })}
-      />
-      {errors.apellido_p && <Text style={styles.errorText}>{errors.apellido_p}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Apellido Materno"
-        value={formData.apellido_m}
-        onChangeText={(text) => setFormData({ ...formData, apellido_m: text })}
-      />
-      {errors.apellido_m && <Text style={styles.errorText}>{errors.apellido_m}</Text>}
-
-          <Text>Selecciona una fecha:</Text>
-
-          {/* Picker para móvil */}
-          {Platform.OS !== 'web' && (
-            <>
-              <Button title="Seleccionar fecha" onPress={() => setShowPicker(true)} />
-              {showPicker && (
-                <DateTimePicker
-                  value={date}
-                  mode="date"
-                  display="default"
-                  onChange={onChangeMobile}
-                />
-              )}
-            </>
-          )}
-
-          {/* Picker para web */}
-          {Platform.OS === 'web' && (
-            <input
-              type="date"
-              value={date.toISOString().split('T')[0]} // Formatea la fecha para el input
-              onChange={onChangeWeb}
-              style={styles.webInput}
-            />
-          )}
-
-          <Text style={styles.selectedDate}>
-            Fecha seleccionada: {date.toLocaleDateString()}
-          </Text>
 
 
-      {errors.fecha_nacimiento && <Text style={styles.errorText}>{errors.fecha_nacimiento}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Lugar de Nacimiento"
-        value={formData.lugar_nacimiento}
-        onChangeText={(text) => setFormData({ ...formData, lugar_nacimiento: text })}
-      />
-      {errors.lugar_nacimiento && <Text style={styles.errorText}>{errors.lugar_nacimiento}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="CURP (EN MAYUSCULAS)"
-        value={formData.curp}
-        onChangeText={(text) => setFormData({ ...formData, curp: text })}
-      />
-      {errors.curp && <Text style={styles.errorText}>{errors.curp}</Text>}
-      <TouchableOpacity onPress={() => Linking.openURL('https://www.gob.mx/curp/')} style={styles.linkContainer}>
-        <Text style={styles.linkText}>¿No sabes tu CURP? Consúltala aquí</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.button} onPress={onNext}>
-        <Text style={styles.buttonText}>Continuar</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
-
-// 4. Formulario de Datos de Contacto
-const DatosContactoForm = ({ formData, setFormData, errors, onNext }) => {
-  return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Datos de Contacto</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Dirección"
-        value={formData.direccion}
-        onChangeText={(text) => setFormData({ ...formData, direccion: text })}
-      />
-      {errors.direccion && <Text style={styles.errorText}>{errors.direccion}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Teléfono"
-        value={formData.telefono}
-        onChangeText={(text) => setFormData({ ...formData, telefono: text })}
-        keyboardType="phone-pad"
-      />
-      {errors.telefono && <Text style={styles.errorText}>{errors.telefono}</Text>}
-      <TouchableOpacity style={styles.button} onPress={onNext}>
-        <Text style={styles.buttonText}>Continuar</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
-
-// 5. Formulario de Datos Escolares y Médicos
-const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) => {
-  return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Datos Escolares y Médicos</Text>
-      <Picker
-        selectedValue={formData.grado_escolar}
-        onValueChange={(itemValue) => setFormData({ ...formData, grado_escolar: itemValue })}
-        style={styles.picker}
-      >
-        <Picker.Item label="Selecciona el grado escolar" value="" />
-        <Picker.Item label="Primaria" value="primaria" />
-        <Picker.Item label="Secundaria" value="secundaria" />
-        <Picker.Item label="Preparatoria" value="preparatoria" />
-      </Picker>
-      {errors.grado_escolar && <Text style={styles.errorText}>{errors.grado_escolar}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Nombre de la Escuela"
-        value={formData.nombre_escuela}
-        onChangeText={(text) => setFormData({ ...formData, nombre_escuela: text })}
-      />
-      {errors.nombre_escuela && <Text style={styles.errorText}>{errors.nombre_escuela}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Alergias"
-        value={formData.alergias}
-        onChangeText={(text) => setFormData({ ...formData, alergias: text })}
-      />
-      {errors.alergias && <Text style={styles.errorText}>{errors.alergias}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Padecimientos"
-        value={formData.padecimientos}
-        onChangeText={(text) => setFormData({ ...formData, padecimientos: text })}
-      />
-      {errors.padecimientos && <Text style={styles.errorText}>{errors.padecimientos}</Text>}
-      <TextInput
-        style={styles.input}
-        placeholder="Peso (kg)"
-        value={formData.peso}
-        onChangeText={(text) => setFormData({ ...formData, peso: text })}
-        keyboardType="numeric"
-      />
-      {errors.peso && <Text style={styles.errorText}>{errors.peso}</Text>}
-      <TouchableOpacity style={styles.button} onPress={onNext}>
-        <Text style={styles.buttonText}>Continuar</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
-
-// 6. Formulario de Firma y Foto
-// 
-// /*
-const FirmaFotoForm = ({ formData, setFormData, errors, onSubmit }) => {
-  const [paths, setPaths] = useState([]); // Almacena las rutas dibujadas
-  const [currentPath, setCurrentPath] = useState([]); // Almacena los puntos de la ruta actual
-  const [isDrawing, setIsDrawing] = useState(false); // Indica si el usuario está dibujando
-  const [hasCameraPermission, setHasCameraPermission] = useState(null);
-  const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
-
-  useEffect(() => {
-    (async () => {
-      const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
-      const galleryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      setHasCameraPermission(cameraStatus.status === 'granted');
-      setHasGalleryPermission(galleryStatus.status === 'granted');
-    })();
-  }, []);
-
-  // Configura el PanResponder para capturar los gestos del usuario
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: (event, gestureState) => {
-      const { locationX, locationY } = event.nativeEvent;
-      setIsDrawing(true);
-      setCurrentPath([{ x: locationX, y: locationY }]);
-    },
-    onPanResponderMove: (event, gestureState) => {
-      if (!isDrawing) return;
-      const { locationX, locationY } = event.nativeEvent;
-      setCurrentPath((prevPath) => [...prevPath, { x: locationX, y: locationY }]);
-    },
-    onPanResponderRelease: () => {
-      setIsDrawing(false);
-      setPaths((prevPaths) => [...prevPaths, currentPath]);
-      setCurrentPath([]);
-    },
-  });
-
-  // Convierte los puntos de la ruta en un formato de cadena para el atributo "d" de <path>
-  const getPathData = (path) => {
-    if (path.length === 0) return '';
-    return path
-      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-      .join(' ');
-  };
-
-  // Función para limpiar el área de dibujo
-  const clearCanvas = () => {
-    setPaths([]);
-    setCurrentPath([]);
-  };
-
-  // Función para guardar la firma como una imagen (simulada)
-  const handleSaveSignature = async () => {
-    setFormData({ ...formData, firma: paths });
-    Alert.alert('Firma guardada', 'La firma se ha guardado correctamente.');
-  };
-
-
-
-    // Función para seleccionar una foto desde la galería
-    const handleSelectFoto = async () => {
-      if (!hasGalleryPermission) {
-        Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la galería para seleccionar una imagen.');
-        return;
-      }
-  
-      const result = await ImagePicker.launchImageLibraryAsync({
-        
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 1,
-        base64: false,
-      });
-  
-      console.log("Resultado de la galería:", result); // Depuración
-  
-      if (!result.canceled) {
-        setFormData({ ...formData, foto_jugador: result.assets[0].uri });
-      }
-    };
-  
-    // Función para tomar una foto con la cámara
-    const handleTakePhoto = async () => {
-      if (!hasCameraPermission) {
-        Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la cámara para tomar una foto.');
-        return;
-      }
-  
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 1,
-        base64: false,
-      });
-  
-      console.log("Resultado de la cámara:", result); // Depuración
-  
-      if (!result.canceled) {
-        setFormData({ ...formData, foto_jugador: result.assets[0].uri });
-      }
-    };
-
-
-
-  return (
-    <View style={styles.formContainer}>
-      <Text style={styles.title}>Firma y Foto</Text>
-
-      {/* Área de dibujo para la firma */}
-      <View style={styles.signatureContainer} {...panResponder.panHandlers}>
-        <Svg style={styles.canvas}>
-          {paths.map((path, index) => (
-            <Path
-              key={index}
-              d={getPathData(path)}
-              stroke="black"
-              strokeWidth={3}
-              fill="none"
-            />
-          ))}
-          <Path
-            d={getPathData(currentPath)}
-            stroke="black"
-            strokeWidth={3}
-            fill="none"
-          />
-        </Svg>
-      </View>
-
-      <TouchableOpacity style={styles.button} onPress={clearCanvas}>
-        <Text style={styles.buttonText}>Limpiar</Text>
-      </TouchableOpacity>
-
-      {/* Botón para guardar la firma */}
-      <TouchableOpacity style={styles.button} onPress={handleSaveSignature}>
-        <Text style={styles.buttonText}>Guardar Firma</Text>
-      </TouchableOpacity>
-      {errors.firma && <Text style={styles.errorText}>{errors.firma}</Text>}
-
-      {/* Botón para tomar una foto */}
-      <TouchableOpacity style={styles.button} onPress={handleTakePhoto}>
-        <Text style={styles.buttonText}>Tomar Foto del jugador</Text>
-      </TouchableOpacity>
-
-      {/* Botón para seleccionar una foto de la galería */}
-        <TouchableOpacity style={styles.button} onPress={handleSelectFoto}>
-        <Text style={styles.buttonText}>Seleccionar Foto de la Galería</Text>
-      </TouchableOpacity>
-      {/* Mostrar la imagen seleccionada */}
-      {formData.foto_jugador && (
-        <Image
-          source={{ uri: formData.foto_jugador }}
-          style={styles.imagePreview}
-        />
-      )}
-      {errors.foto_jugador && <Text style={styles.errorText}>{errors.foto_jugador}</Text>}
-
-      {/* Mostrar la imagen seleccionada */}
-      {formData.foto_jugador && (
-        <Image
-          source={{ uri: formData.foto_jugador }}
-          style={styles.imagePreview}
-        />
-      )}
-
-      {/* Botón para terminar el registro */}
-      <TouchableOpacity style={styles.button} onPress={onSubmit}>
-        <Text style={styles.buttonText}>Terminar Registro</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
-
-
-
-// Estilos
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    padding: 20,
-  },
-  containerpicker: {
-    flex: 1,
-    backgroundColor: '#fff',
-    height:120,
-  },
-  formContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 20,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 5,
-    padding: 10,
-    marginBottom: 15,
-    backgroundColor: '#f9f9f9',
-    width: '100%',
-  },
-  picker: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 5,
-    marginBottom: 15,
-    backgroundColor: '#f9f9f9',
-    width: '100%',
-  },
-  button: {
-    backgroundColor: '#FBBE08',
-    padding: 15,
-    borderRadius: 25,
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  buttonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  errorText: {
-    color: 'red',
-    marginBottom: 10,
-  },
-  backButton: {
-    position: 'absolute',
-    bottom: 20,
-    left: 20,
-    backgroundColor: '#ccc',
-    padding: 10,
-    borderRadius: 5,
-  },
-  backButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  signatureContainer: {
-    height: 200,
-    borderWidth: 1,
-    borderColor: '#000',
-    marginBottom: 20,
-  },
-  canvas: {
-    flex: 1,
-  },
-  linkText: {
-    color: '#007BFF',
-    textDecorationLine: 'underline',
-    marginBottom: 15,
-  },
-  linkContainer: {
-    alignSelf: 'flex-start',
-    flexWrap: 'wrap',
-  }, 
-  selectedDate: {
-    marginTop: 20,
-    fontSize: 16,
-    paddingBottom:20,
-  },
-});
-
-export default HomeScreen;
+  ffbe00

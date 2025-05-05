@@ -84,19 +84,6 @@ const RegisterScreen = ({ navigation }) => {
       isValid = false;
     }
 
-    if (!telefono.trim()) {
-      newErrors.telefono = 'El teléfono es obligatorio.';
-      isValid = false;
-    } else if (!/^\d{10}$/.test(telefono)) {
-      newErrors.telefono = 'El teléfono debe tener 10 dígitos.';
-      isValid = false;
-    }
-
-    if (!ocupacion.trim()) {
-      newErrors.ocupacion = 'La ocupación es obligatoria.';
-      isValid = false;
-    }
-
     setErrors(newErrors);
     return isValid;
   };
@@ -111,14 +98,14 @@ const RegisterScreen = ({ navigation }) => {
     return querySnapshot.empty;
   };
 
-  const sendEmail = async (email, code) => {
+  const sendEmail = async (email, code, uid) => {
     try {
       const response = await fetch('https://us-central1-clubtoros-c8a29.cloudfunctions.net/sendEmailFunction', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, code }),
+        body: JSON.stringify({ email, code, uid }),
       });
 
       const data = await response.json();
@@ -187,7 +174,7 @@ const RegisterScreen = ({ navigation }) => {
         { cancelable: false }
       );
 
-      await sendEmail(correo, codigoAcceso);
+      await sendEmail(correo, codigoAcceso, user.uid);
 
       // Éxito - mostrar mensaje y redirigir
       showAlert(
@@ -223,10 +210,11 @@ const RegisterScreen = ({ navigation }) => {
         <View style={styles.rightColumn}>
           <Text style={styles.welcomeText}>Registro</Text>
           <Text style={styles.subtitle}>Registro para padres/tutores de jugadores</Text>
+          <Text style={styles.subtitle}>Ingresa tus datos para realizar tu registro (los campos marcados con * son obligatorios)</Text>
           
           <TextInput
             style={[styles.input, errors.nombreCompleto ? styles.inputError : null]}
-            placeholder="Nombre Completo"
+            placeholder="Nombre Completo *"
             placeholderTextColor="#999"
             value={nombreCompleto}
             onChangeText={setNombreCompleto}
@@ -236,7 +224,7 @@ const RegisterScreen = ({ navigation }) => {
 
           <TextInput
             style={[styles.input, errors.correo ? styles.inputError : null]}
-            placeholder="Correo electrónico"
+            placeholder="Correo electrónico *"
             placeholderTextColor="#999"
             value={correo}
             onChangeText={setCorreo}
@@ -373,7 +361,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   loginButtonPressed: {
-    backgroundColor: '#9a1a22',
+    backgroundColor: '#ffbe60',
   },
   loginButtonDisabled: {
     backgroundColor: '#cccccc',

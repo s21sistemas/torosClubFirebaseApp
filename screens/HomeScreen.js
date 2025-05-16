@@ -8,9 +8,9 @@ import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Svg, { Path } from 'react-native-svg';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { getStorage, ref, uploadBytes, getDownloadURL,uploadString } from 'firebase/storage';
 import { getFirestore, collection, addDoc, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { auth } from '../firebaseConfig';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { captureRef } from 'react-native-view-shot';
@@ -80,57 +80,49 @@ const HomeScreen = ({ navigation }) => {
     'FirmaFotoForm'
   ];
 
-  const uploadFile = async (fileUri, fileName, folder) => {
-    try {
-      let finalUri = fileUri;
-      let blob;
-  
-      if (Platform.OS === 'android' && fileUri.startsWith('content://')) {
-        const cacheFileUri = `${FileSystem.cacheDirectory}${fileName}`;
-        await FileSystem.copyAsync({
-          from: fileUri,
-          to: cacheFileUri
-        });
-        finalUri = cacheFileUri;
-      }
-  
-      if (Platform.OS === 'web') {
-        const response = await fetch(fileUri);
-        blob = await response.blob();
-      } else {
-        const fileInfo = await FileSystem.getInfoAsync(finalUri);
-        if (!fileInfo.exists) throw new Error('El archivo no existe');
-        const response = await fetch(finalUri);
-        blob = await response.blob();
-      }
-  
-      const fileExtension = fileName.split('.').pop() || (blob.type.split('/')[1] || 'jpg');
-      const newFileName = `${folder}/${Date.now()}.${fileExtension}`;
-      const storageRef = ref(storage, newFileName);
-      const uploadTask = uploadBytesResumable(storageRef, blob);
-  
-      return new Promise((resolve, reject) => {
-        uploadTask.on('state_changed',
-          (snapshot) => {
-            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-            setUploadProgress(prev => ({ ...prev, [folder]: progress }));
-          },
-          (error) => reject(error),
-          async () => {
-            try {
-              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              resolve(downloadURL);
-            } catch (error) {
-              reject(error);
-            }
-          }
-        );
-      });
-    } catch (error) {
-      console.error('Error en uploadFile:', error);
-      throw error;
-    }
-  };
+  const uploadFile = async (fileUri) => {
+  try {
+    const response = await fetch(fileUri);
+    const blob = await response.blob();
+
+    const fileName = `image_${Date.now()}.jpg`;
+    const storage = getStorage();
+    const storageRef = ref(storage, `fotos/${fileName}`);
+
+    await uploadBytes(storageRef, blob);
+    return await getDownloadURL(storageRef);
+  } catch (error) {
+    console.error("Error al subir imagen:", error);
+    throw new Error("No se pudo subir la imagen a Firebase.");
+  }
+};
+
+const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') => {
+  try {
+    // 1. Leer imagen como base64
+    const base64Data = await FileSystem.readAsStringAsync(fileUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    // 2. Crear referencia en Firebase Storage
+    const storage = getStorage();
+    const storageRef = ref(storage, `${folder}/${Date.now()}_${fileName}`);
+
+    // 3. Subir como string base64 con tipo especificado
+    await uploadString(storageRef, base64Data, 'base64', {
+      contentType: 'image/jpeg'
+    });
+
+    // 4. Obtener URL
+    const downloadURL = await getDownloadURL(storageRef);
+    return downloadURL;
+
+  } catch (error) {
+    console.error('Error al subir imagen:', error);
+    throw new Error('No se pudo subir la imagen usando base64.');
+  }
+};
+
 
   const validateForm = () => {
     const newErrors = {};
@@ -192,241 +184,320 @@ const HomeScreen = ({ navigation }) => {
     });
   };
 
-  const handleSubmit = async () => {
-    if (validateForm()) {
-      setLoading(true);
+ const handleSubmit = async () => {
+  if (!validateForm()) {
+    Alert.alert('Error', 'Por favor completa todos los campos requeridos');
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    // 1. Verificar autenticación
+    const user = auth.currentUser;
+    if (!user) {
+      throw new Error('No se pudo verificar tu sesión. Vuelve a iniciar sesión.');
+    }
+    const uid = user.uid;
+
+    // 2. Subir foto del jugador con reintentos
+    let fotoJugadorURL = null;
+    if (formData.foto_jugador) {
       try {
-        const auth = getAuth();
-        const user = auth.currentUser;
-        const uid = user?.uid;
-        if (!uid) throw new Error('No se pudo obtener el UID del usuario.');
-  
-        // Subir foto del jugador
-        const fotoJugadorURL = formData.foto_jugador ? 
-          await uploadFile(formData.foto_jugador, 'foto_jugador.jpg', 'fotos') : null;
-  
-        // Consultar temporada activa
-        let temporadaActiva = null;
-        const temporadasQuery = query(
-          collection(db, 'temporadas'),
-          where('estado_temporada', '==', 'Activa')
+        fotoJugadorURL = await withRetry(
+          () => uploadFile(formData.foto_jugador),
+          3,
+          1000
         );
-        
-        const temporadasSnapshot = await getDocs(temporadasQuery);
-        if (!temporadasSnapshot.empty) {
-          // Tomar la primera temporada activa (asumiendo que solo hay una activa)
-          const tempDoc = temporadasSnapshot.docs[0];
-          temporadaActiva = {
-            label: tempDoc.data().temporada || 'Temporada Activa',
-            value: tempDoc.id
-          };
+
+        if (!fotoJugadorURL) {
+          throw new Error("La URL de la imagen no se pudo obtener.");
         }
-  
-        // Crear registro principal
-        const datosRegistro = {
-          nombre: formData.nombre,
-          apellido_p: formData.apellido_p,
-          apellido_m: formData.apellido_m,
-          sexo: formData.sexo,
-          categoria: formData.categoria,
-          direccion: formData.direccion,
-          telefono: formData.telefono,
-          fecha_nacimiento: formData.fecha_nacimiento.toISOString().split('T')[0],
-          lugar_nacimiento: formData.lugar_nacimiento,
-          curp: formData.curp, 
-          grado_escolar: formData.grado_escolar,
-          nombre_escuela: formData.nombre_escuela,
-          alergias: formData.alergias,
-          padecimientos: formData.padecimientos,
-          peso: formData.peso,
-          tipo_inscripcion: formData.tipo_inscripcion,
-          foto: fotoJugadorURL,
-          documentos: {
-            ine_tutor: null,
-            curp: null,
-            acta_nacimiento: null,
-            comprobante_domicilio: null,
-            firma: null,
-            firma_jugador:null
-          },
-          activo: 'activo',
-          numero_mfl: formData.numero_mfl,
-          fecha_registro: new Date(),
-          uid: uid,
-          estatus:"Incompleto",
-          // Agregar temporada activa si existe
-          ...(temporadaActiva && { temporada: temporadaActiva }),
-          ...(formData.tipo_inscripcion === 'transferencia' && {
-            transferencia: formData.transferencia
-          })
-        };
-  
-        // Guardar en colección principal
-        const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
-        const docRef = await addDoc(collection(db, coleccion), datosRegistro);
-        
-        // Obtener costos según el tipo de inscripción
-        const costosCollection = formData.tipo_inscripcion === 'porrista' ? 'costos-porrista' : 'costos-jugador';
-        const costosQuery = collection(db, costosCollection);
-        const costosSnapshot = await getDocs(costosQuery);
-        
-        if (costosSnapshot.empty) {
-          throw new Error(`No se encontraron costos configurados para ${formData.tipo_inscripcion}`);
-        }
-  
-        const costosDoc = costosSnapshot.docs[0];
-        const costosData = costosDoc.data();
-  
-        const parseCost = (value) => parseInt(value || '0', 10);
-        
-        const nombreCompleto = `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`;
-        const fechaActual = new Date();
-        const fechaLimite = new Date();
-        fechaLimite.setDate(fechaLimite.getDate() + 7);
-  
-        if (formData.tipo_inscripcion === 'porrista') {
-          const inscripcion = parseCost(costosData.inscripcion);
-          const coaching = parseCost(costosData.coaching);
-          const total = inscripcion + coaching;
-  
-          const pagosPorrista = {
-            porristaId: docRef.id,
-            nombre: nombreCompleto,
-            pagos: [
-              {
-                tipo: 'Inscripción',
-                estatus: 'pendiente',
-                fecha_pago: null,
-                monto: inscripcion,
-                metodo_pago: null,
-                abono: 'NO',
-                abonos: [],
-                total_abonado: 0,
-                fecha_limite: fechaLimite.toISOString().split('T')[0]
-              },
-              {
-                tipo: 'Coaching',
-                estatus: 'pendiente',
-                fecha_pago: null,
-                monto: coaching,
-                metodo_pago: null,
-                abono: 'NO',
-                abonos: [],
-                total_abonado: 0,
-                fecha_limite: null
-              }
-            ],
-            monto_total_pagado: 0,
-            monto_total_pendiente: total,
-            monto_total: total,
-            fecha_registro: fechaActual.toISOString().split('T')[0],
-            temporadaId: temporadaActiva?.value || costosData.temporadaId?.value || null
-          };
-          await addDoc(collection(db, 'pagos_porristas'), pagosPorrista);
-        } else {
-          const inscripcion = parseCost(costosData.inscripcion);
-          const coaching = parseCost(costosData.coaching);
-          const tunel = parseCost(costosData.tunel);
-          const botiquin = parseCost(costosData.botiquin);
-          const equipamiento = parseCost(costosData.equipamiento);
-          const pesaje = parseCost(costosData.pesaje);
-          
-          // Calcular total sumando todos los conceptos
-          const total = inscripcion + coaching + tunel + botiquin + equipamiento + pesaje;
-  
-          const pagosJugador = {
-            jugadorId: docRef.id,
-            nombre: nombreCompleto,
-            categoria: formData.categoria,
-            pagos: [
-              {
-                tipo: 'Inscripción',
-                beca: '0',
-                descuento: '0',
-                estatus: 'pendiente',
-                fecha_pago: null,
-                submonto: 0,
-                monto: inscripcion,
-                prorroga: false,
-                fecha_limite: fechaLimite.toISOString().split('T')[0],
-                metodo_pago: null,
-                abono: 'NO',
-                abonos: [],
-                total_abonado: 0
-              },
-              {
-                tipo: 'Coaching',
-                estatus: 'pendiente',
-                fecha_pago: null,
-                fecha_limite: null,
-                monto: coaching,
-                metodo_pago: null,
-                abono: 'NO',
-                abonos: [],
-                total_abonado: 0
-              },
-              {
-                tipo: 'Túnel',
-                estatus: 'pendiente',
-                fecha_pago: null,
-                monto: tunel,
-                metodo_pago: null,
-                abono: 'NO',
-                abonos: [],
-                total_abonado: 0
-              },
-              {
-                tipo: 'Botiquín',
-                estatus: 'pendiente',
-                fecha_pago: null,
-                monto: botiquin,
-                metodo_pago: null,
-                abono: 'NO',
-                abonos: [],
-                total_abonado: 0
-              },
-              {
-                tipo: 'Equipamiento',
-                estatus: 'pendiente',
-                fecha_pago: null,
-                fecha_limite: null,
-                monto: equipamiento,
-                metodo_pago: null,
-                abono: 'NO',
-                abonos: [],
-                total_abonado: 0
-              },
-              {
-                tipo: 'Pesaje',
-                estatus: 'pendiente',
-                fecha_pago: null,
-                monto: pesaje,
-                metodo_pago: null,
-                abono: 'NO',
-                abonos: [],
-                total_abonado: 0
-              }
-            ],
-            monto_total_pagado: 0,
-            monto_total_pendiente: total,
-            monto_total: total,
-            fecha_registro: fechaActual.toISOString().split('T')[0],
-            temporadaId: temporadaActiva?.value || costosData.temporadaId?.value || null
-          };
-          await addDoc(collection(db, 'pagos_jugadores'), pagosJugador);
-        }
-  
-        Alert.alert('Éxito', 'Registro completado correctamente, recuerda que seguir los pasos enviados a tu correo electronico para completar la inscripción');
-        navigation.navigate('MainTabs');
-      } catch (error) {
-        console.error('Error en handleSubmit:', error);
-        Alert.alert('Error', error.message || 'Error al completar el registro');
-      } finally {
-        setLoading(false);
-        setCurrentUpload(null);
+      } catch (uploadError) {
+        console.error('Error al subir foto después de varios intentos:', uploadError);
+        throw new Error('No se pudo subir la foto. Intenta con otra imagen o verifica tu conexión.');
       }
     }
-  };
+
+    // 3. Obtener temporada activa
+    let temporadaActiva = null;
+    try {
+      const temporadasQuery = query(
+        collection(db, 'temporadas'),
+        where('estado_temporada', '==', 'Activa')
+      );
+
+      const temporadasSnapshot = await getDocs(temporadasQuery);
+      if (!temporadasSnapshot.empty) {
+        const tempDoc = temporadasSnapshot.docs[0];
+        temporadaActiva = {
+          label: tempDoc.data().temporada || 'Temporada Activa',
+          value: tempDoc.id
+        };
+      }
+    } catch (dbError) {
+      console.error('Error al obtener temporada activa:', dbError);
+    }
+
+    // 4. Crear objeto de registro
+    const datosRegistro = {
+      nombre: formData.nombre,
+      apellido_p: formData.apellido_p,
+      apellido_m: formData.apellido_m,
+      sexo: formData.sexo,
+      categoria: formData.categoria,
+      direccion: formData.direccion,
+      telefono: formData.telefono,
+      fecha_nacimiento: formData.fecha_nacimiento.toISOString().split('T')[0],
+      lugar_nacimiento: formData.lugar_nacimiento,
+      curp: formData.curp,
+      grado_escolar: formData.grado_escolar,
+      nombre_escuela: formData.nombre_escuela,
+      alergias: formData.alergias,
+      padecimientos: formData.padecimientos,
+      peso: formData.peso,
+      tipo_inscripcion: formData.tipo_inscripcion,
+      foto: fotoJugadorURL,
+      documentos: {
+        ine_tutor: null,
+        curp: null,
+        acta_nacimiento: null,
+        comprobante_domicilio: null,
+        firma: null,
+        firma_jugador: null
+      },
+      activo: 'activo',
+      numero_mfl: formData.numero_mfl,
+      fecha_registro: new Date(),
+      uid: uid,
+      estatus: "Incompleto",
+      ...(temporadaActiva && { temporada: temporadaActiva }),
+      ...(formData.tipo_inscripcion === 'transferencia' && {
+        transferencia: formData.transferencia
+      })
+    };
+
+    // 5. Guardar en Firestore
+    const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
+    const docRef = await addDoc(collection(db, coleccion), datosRegistro);
+
+    // 6. Procesar pagos
+    await processPayments(docRef.id, formData, temporadaActiva);
+
+    // 7. Éxito
+    Alert.alert(
+      'Registro Exitoso',
+      'Jugador registrado correctamente. Se ha creado el expediente y los pagos correspondientes.',
+      [{ text: 'OK', onPress: () => navigation.navigate('MainTabs') }]
+    );
+
+  } catch (error) {
+    console.error('Error completo en handleSubmit:', {
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString(),
+      user: auth.currentUser?.uid,
+      formData: {
+        ...formData,
+        foto_jugador: formData.foto_jugador ? 'EXISTE' : 'NULL',
+        firma: formData.firma.length > 0 ? 'EXISTE' : 'NULL'
+      }
+    });
+
+    let errorMessage = error.message || 'Ocurrió un error al completar el registro.';
+
+    if (error.message.includes('network') || error.message.includes('Network')) {
+      errorMessage = 'Problema de conexión. Verifica tu internet e intenta nuevamente.';
+    } else if (error.message.includes('quota')) {
+      errorMessage = 'Límite de almacenamiento excedido. Contacta al administrador.';
+    } else if (error.message.includes('permission')) {
+      errorMessage = 'No tienes permisos para realizar esta acción.';
+    }
+
+    Alert.alert('Error', errorMessage);
+  } finally {
+    setLoading(false);
+    setCurrentUpload(null);
+  }
+};
+
+
+// Funciones auxiliares:
+
+// Verificar conexión a internet
+
+
+// Función con reintentos automáticos
+const withRetry = async (fn, maxRetries = 3, delayMs = 1000) => {
+  let lastError;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (i < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw lastError;
+};
+
+// Procesar pagos (separado para mejor organización)
+const processPayments = async (playerId, formData, temporadaActiva) => {
+  try {
+    const costosCollection = formData.tipo_inscripcion === 'porrista' ? 'costos-porrista' : 'costos-jugador';
+    const costosQuery = collection(db, costosCollection);
+    const costosSnapshot = await getDocs(costosQuery);
+    
+    if (costosSnapshot.empty) {
+      throw new Error(`No se encontraron costos configurados para ${formData.tipo_inscripcion}`);
+    }
+
+    const costosDoc = costosSnapshot.docs[0];
+    const costosData = costosDoc.data();
+    const parseCost = (value) => parseInt(value || '0', 10);
+    
+    const nombreCompleto = `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`;
+    const fechaActual = new Date();
+    const fechaLimite = new Date();
+    fechaLimite.setDate(fechaLimite.getDate() + 7);
+
+    if (formData.tipo_inscripcion === 'porrista') {
+      const inscripcion = parseCost(costosData.inscripcion);
+      const coaching = parseCost(costosData.coaching);
+      const total = inscripcion + coaching;
+
+      const pagosPorrista = {
+        porristaId: playerId,
+        nombre: nombreCompleto,
+        pagos: [
+          {
+            tipo: 'Inscripción',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            monto: inscripcion,
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0,
+            fecha_limite: fechaLimite.toISOString().split('T')[0]
+          },
+          {
+            tipo: 'Coaching',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            monto: coaching,
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0,
+            fecha_limite: null
+          }
+        ],
+        monto_total_pagado: 0,
+        monto_total_pendiente: total,
+        monto_total: total,
+        fecha_registro: fechaActual.toISOString().split('T')[0],
+        temporadaId: temporadaActiva?.value || costosData.temporadaId?.value || null
+      };
+      await addDoc(collection(db, 'pagos_porristas'), pagosPorrista);
+    } else {
+      const inscripcion = parseCost(costosData.inscripcion);
+      const coaching = parseCost(costosData.coaching);
+      const tunel = parseCost(costosData.tunel);
+      const botiquin = parseCost(costosData.botiquin);
+      const equipamiento = parseCost(costosData.equipamiento);
+      const pesaje = parseCost(costosData.pesaje);
+      
+      const total = inscripcion + coaching + tunel + botiquin + equipamiento + pesaje;
+
+      const pagosJugador = {
+        jugadorId: playerId,
+        nombre: nombreCompleto,
+        categoria: formData.categoria,
+        pagos: [
+          {
+            tipo: 'Inscripción',
+            beca: '0',
+            descuento: '0',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            submonto: 0,
+            monto: inscripcion,
+            prorroga: false,
+            fecha_limite: fechaLimite.toISOString().split('T')[0],
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0
+          },
+          {
+            tipo: 'Coaching',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            fecha_limite: null,
+            monto: coaching,
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0
+          },
+          {
+            tipo: 'Túnel',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            monto: tunel,
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0
+          },
+          {
+            tipo: 'Botiquín',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            monto: botiquin,
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0
+          },
+          {
+            tipo: 'Equipamiento',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            fecha_limite: null,
+            monto: equipamiento,
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0
+          },
+          {
+            tipo: 'Pesaje',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            monto: pesaje,
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0
+          }
+        ],
+        monto_total_pagado: 0,
+        monto_total_pendiente: total,
+        monto_total: total,
+        fecha_registro: fechaActual.toISOString().split('T')[0],
+        temporadaId: temporadaActiva?.value || costosData.temporadaId?.value || null
+      };
+      await addDoc(collection(db, 'pagos_jugadores'), pagosJugador);
+    }
+  } catch (error) {
+    console.error('Error al procesar pagos:', error);
+    throw new Error('Se completó el registro pero hubo un problema con los pagos. Contacta al administrador.');
+  }
+};
 
   const renderForm = () => {
     switch (steps[currentStep]) {

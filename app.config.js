@@ -42,6 +42,7 @@ export default {
     },
     android: {
       package: "com.mx.s1sistem.ClubToros",
+      
       adaptiveIcon: {
         foregroundImage: "./assets/torosIcon.png",
         backgroundColor: "#ffffff"

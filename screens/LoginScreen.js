@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  StyleSheet, 
-  SafeAreaView, 
-  Alert, 
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  SafeAreaView,
+  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -24,10 +24,7 @@ SplashScreen.preventAutoHideAsync();
 const LoginScreen = ({ navigation }) => {
   const [correo, setCorreo] = useState('');
   const [contrasena, setContrasena] = useState('');
-  const [errors, setErrors] = useState({
-    correo: '',
-    contrasena: '',
-  });
+  const [errors, setErrors] = useState({ correo: '', contrasena: '' });
 
   const [fontsLoaded] = useFonts({
     'MiFuente': require('../fonts/TypoCollegeDemo.otf'),
@@ -39,9 +36,7 @@ const LoginScreen = ({ navigation }) => {
     }
   }, [fontsLoaded]);
 
-  if (!fontsLoaded) {
-    return null;
-  }
+  if (!fontsLoaded) return null;
 
   const validateForm = () => {
     let isValid = true;
@@ -68,7 +63,8 @@ const LoginScreen = ({ navigation }) => {
     if (validateForm()) {
       try {
         await signInWithEmailAndPassword(auth, correo, contrasena);
-        navigation.navigate('MainTabs');
+        // 🔴 Quita la navegación manual
+        // App.js redirige automáticamente al detectar sesión activa
       } catch (error) {
         console.error('Error al iniciar sesión:', error);
         Alert.alert('Error', 'Correo o contraseña incorrectos. Por favor, intenta de nuevo.');
@@ -84,7 +80,7 @@ const LoginScreen = ({ navigation }) => {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <ScrollView 
+          <ScrollView
             contentContainerStyle={styles.scrollContainer}
             keyboardShouldPersistTaps="handled"
           >
@@ -121,8 +117,8 @@ const LoginScreen = ({ navigation }) => {
                 />
                 {errors.contrasena ? <Text style={styles.errorText}>{errors.contrasena}</Text> : null}
 
-                <TouchableOpacity 
-                  style={styles.loginButton} 
+                <TouchableOpacity
+                  style={styles.loginButton}
                   onPress={handleLogin}
                   activeOpacity={0.8}
                 >
@@ -130,14 +126,16 @@ const LoginScreen = ({ navigation }) => {
                 </TouchableOpacity>
 
                 <View style={styles.linksContainer}>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={() => navigation.navigate('Register')}
                     style={styles.linkButton}
                   >
-                    <Text style={styles.linkText}>¿No tienes cuenta? <Text style={styles.linkTextBold}>Regístrate</Text></Text>
+                    <Text style={styles.linkText}>
+                      ¿No tienes cuenta? <Text style={styles.linkTextBold}>Regístrate</Text>
+                    </Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={() => navigation.navigate('ForgotPassword')}
                     style={styles.linkButton}
                   >

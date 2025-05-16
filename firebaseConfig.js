@@ -1,6 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { initializeAuth, getReactNativePersistence, browserLocalPersistence } from 'firebase/auth';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAuth } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -15,14 +14,10 @@ const firebaseConfig = {
 // Inicializar Firebase
 const app = initializeApp(firebaseConfig);
 
-// Configuración de Auth con persistencia multiplataforma
-const auth = initializeAuth(app, {
-  persistence: typeof window === 'undefined' 
-    ? getReactNativePersistence(AsyncStorage) 
-    : browserLocalPersistence
-});
+// Auth sin persistencia personalizada (compatible con Expo Go)
+const auth = getAuth(app);
 
-// Configuración de Firestore
+// Firestore
 const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
   useFetchStreams: false,

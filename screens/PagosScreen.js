@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
-  View,
-  Text,
+  View,Text,
   StyleSheet,
   TouchableOpacity,
   Linking,

@@ -1148,7 +1148,7 @@ const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) =>
   );
 };
 
-// Componente TransferenciaForm
+// Componente TransferenciaForm 4444
 const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
   const handleChange = (field, value) => {
     setFormData(prev => ({

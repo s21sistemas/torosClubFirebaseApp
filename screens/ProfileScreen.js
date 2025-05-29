@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../firebaseConfig';
 import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 
 const formatValue = (value) => {
@@ -64,6 +65,7 @@ const ProfileScreen = ({ navigation }) => {
     const user = auth.currentUser;
 
     const fetchUserData = async () => {
+
       try {
         const q = query(collection(db, 'usuarios'), where('uid', '==', user.uid));
         const querySnapshot = await getDocs(q);
@@ -131,45 +133,6 @@ const ProfileScreen = ({ navigation }) => {
       fetchPlayersAndCheerleaders();
     }
   }, [loginData.id]);
-
-  const handleDeletePlayer = async (id, isCheerleader = false) => {
-    Alert.alert(
-      'Confirmar eliminación',
-      '¿Estás seguro de que quieres eliminar este registro?',
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
-        {
-          text: 'Eliminar',
-          onPress: async () => {
-            try {
-              setLoading(true);
-              const playerRef = doc(db, isCheerleader ? 'porristas' : 'jugadores', id);
-              await updateDoc(playerRef, {
-                activo: 'inactivo'
-              });
-              
-              if (isCheerleader) {
-                setCheerleaders(cheerleaders.filter(c => c.id !== id));
-              } else {
-                setPlayers(players.filter(p => p.id !== id));
-              }
-              
-              Alert.alert('Éxito', 'Registro marcado como inactivo');
-            } catch (error) {
-              console.error('Error al eliminar:', error);
-              Alert.alert('Error', 'No se pudo eliminar el registro');
-            } finally {
-              setLoading(false);
-            }
-          },
-          style: 'destructive',
-        },
-      ]
-    );
-  };
 
   const getStatusStyle = (status) => {
     switch(status) {
@@ -255,12 +218,12 @@ const ProfileScreen = ({ navigation }) => {
           onPress={() => setShowMenu(!showMenu)}
         >
           <View style={styles.profileContent}>
-            <Text style={styles.headerText}>Hola, {formatValue(loginData.nombre_completo)}</Text>
-            <Ionicons name="person-circle" size={32} color="#333" />
+            <Text style={styles.headerText}> Hola, {formatValue(loginData.nombre_completo)}</Text>
+            <Ionicons name="menu" size={32} color="#333" />
           </View>
         </TouchableOpacity>
 
-        {showMenu && (
+         {showMenu && (
           <View style={styles.menuContainer}>
             <View style={styles.menu}>
               <TouchableOpacity
@@ -271,11 +234,18 @@ const ProfileScreen = ({ navigation }) => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuItem}
-                onPress={() => {
-                  setShowMenu(false);
-                  auth.signOut();
-                  navigation.navigate('Login');
-                }}
+              onPress={() => {
+                    setShowMenu(false);
+                    auth.signOut().then(() => {
+                      // Pequeño retraso para asegurar que el navigator esté listo
+                      setTimeout(() => {
+                        navigation.reset({
+                          index: 0,
+                          routes: [{ name: 'Login' }],
+                        });
+                      }, 100); // 100ms es suficiente
+                    });
+                  }}
               >
                 <Text style={styles.menuText}>Cerrar Sesión</Text>
               </TouchableOpacity>
@@ -356,12 +326,7 @@ const ProfileScreen = ({ navigation }) => {
                 >
                   <Text style={styles.buttonText}>Pagos</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.deleteButton]}
-                  onPress={() => handleDeletePlayer(cheerleader.id, true)}
-                >
-                  <Text style={styles.buttonText}>Eliminar</Text>
-                </TouchableOpacity>
+
               </View>
             </View>
           ))
@@ -441,7 +406,7 @@ const styles = StyleSheet.create({
   },
   menuText: {
     fontSize: 16,
-    color: '#333',
+    color: '#ff4444',
   },
   deleteAccountItem: {
     borderTopWidth: 1,
@@ -450,8 +415,8 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   deleteAccountText: {
-    color: '#ff4444',
-    fontWeight: 'bold',
+    fontSize: 16,
+    color: '#c2c0c0',
   },
   mainContent: {
     flex: 1,

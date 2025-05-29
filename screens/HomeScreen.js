@@ -77,62 +77,7 @@ const HomeScreen = ({ navigation }) => {
     'DocumentacionForm',
   ];
 
-  // Función para subir archivos a Firebase Storage 
-  /*
-  const uploadFile = async (fileUri, fileName, folder) => {
-    try {
-      let finalUri = fileUri;
-      let blob;
   
-      // Manejo especial para Android
-      if (Platform.OS === 'android' && fileUri.startsWith('content://')) {
-        const cacheFileUri = `${FileSystem.cacheDirectory}${fileName}`;
-        await FileSystem.copyAsync({
-          from: fileUri,
-          to: cacheFileUri
-        });
-        finalUri = cacheFileUri;
-      }
-  
-      // Convertir a blob
-      if (Platform.OS === 'web') {
-        const response = await fetch(fileUri);
-        blob = await response.blob();
-      } else {
-        const fileInfo = await FileSystem.getInfoAsync(finalUri);
-        if (!fileInfo.exists) throw new Error('El archivo no existe');
-        const response = await fetch(finalUri);
-        blob = await response.blob();
-      }
-  
-      // Subir a Storage
-      const fileExtension = fileName.split('.').pop() || (blob.type.split('/')[1] || 'jpg');
-      const newFileName = `${folder}/${Date.now()}.${fileExtension}`;
-      const storageRef = ref(storage, newFileName);
-      const uploadTask = uploadBytesResumable(storageRef, blob);
-  
-      return new Promise((resolve, reject) => {
-        uploadTask.on('state_changed',
-          (snapshot) => {
-            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-            setUploadProgress(prev => ({ ...prev, [folder]: progress }));
-          },
-          (error) => reject(error),
-          async () => {
-            try {
-              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              resolve(downloadURL);
-            } catch (error) {
-              reject(error);
-            }
-          }
-        );
-      });
-    } catch (error) {
-      console.error('Error en uploadFile:', error);
-      throw error;
-    }
-  };*/
 const safeUploadFile = async ({ uri, name, folder, type = null }) => {
   try {
     if (!uri || !name || !folder) {
@@ -357,6 +302,17 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
     }
   };
 
+    const showAlert = (title, message, options) => {
+    if (Platform.OS === 'web') {
+      window.alert(`${title}\n\n${message}`);
+      if (options && options[0] && options[0].onPress) {
+        options[0].onPress();
+      }
+    } else {
+      Alert.alert(title, message, options);
+    }
+  };
+  
 const handleSubmit = async () => {
   if (!validateForm()) {
     Alert.alert('Error', 'Por favor completa todos los campos requeridos');
@@ -477,11 +433,13 @@ const handleSubmit = async () => {
     // 8. Procesar pagos
     await processPayments(docRef.id, formData, temporadaActiva);
 
-    Alert.alert(
+    
+       showAlert(
       'Registro Exitoso',
-      'Jugador registrado correctamente',
-      [{ text: 'OK', onPress: () => navigation.navigate('MainTabs') }]
-    );
+        'Jugador registrado correctamente',
+       [{ text: 'OK', onPress: () => navigation.navigate('MainTabs') }]);
+
+
 
   } catch (error) {
     console.error('Error completo en handleSubmit:', error);
@@ -966,6 +924,7 @@ const TipoInscripcionForm = ({ formData, setFormData, errors, onNext, navigation
 
 // Componente DatosPersonalesForm
 const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
+  
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
   const [dateInputValue, setDateInputValue] = useState(
@@ -1026,6 +985,7 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
       }));
     }
   };
+
 useEffect(() => {
   // Limpiar error de categoría cuando se actualice a un valor válido
   if (formData.categoria && formData.categoria !== 'NO ENCONTRADA') {
@@ -1045,7 +1005,7 @@ useEffect(() => {
   }, [formData.fecha_nacimiento, formData.sexo, formData.tipo_inscripcion]);
 
   const onChangeMobile = (event, selectedDate) => {
-    setShowPicker(false);
+
     if (selectedDate) {
       updateDate(selectedDate);
     }
@@ -1566,108 +1526,6 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
   );
 };
 
-// Componente DocumentacionForm
-/*
-const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, currentUpload, handleSelectFile }) => {
-  const [acceptedRegulation, setAcceptedRegulation] = useState(false);
-
-  const renderFileInfo = (field) => {
-    const doc = formData.documentos[field];
-    if (!doc || !doc.uri) return null;
-
-    return (
-      <View style={styles.fileInfoContainer}>
-        <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">
-          {doc.name || 'Archivo seleccionado'}
-        </Text>
-        
-        {currentUpload === field ? (
-          <View style={styles.uploadStatus}>
-            <ActivityIndicator size="small" color="#007AFF" />
-            <Text style={styles.uploadProgressText}>
-              {Math.round(uploadProgress[field] || 0)}%
-            </Text>
-          </View>
-        ) : (
-          <Text style={styles.uploadPendingText}>Listo para subir</Text>
-        )}
-      </View>
-    );
-  };
-
-  return (
-          <ScrollView 
-            style={styles.mainContent}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-
-      <View style={styles.formContainer}>
-        <Text style={styles.title}>Documentación Requerida</Text>
-        
-        {['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'].map((field) => (
-          <View key={field} style={styles.formGroup}>
-            <Text style={styles.label}>
-              {field === 'ine_tutor' && 'INE del Tutor'}
-              {field === 'curp_jugador' && 'CURP del Jugador'}
-              {field === 'acta_nacimiento' && 'Acta de Nacimiento'}
-              {field === 'comprobante_domicilio' && 'Comprobante de Domicilio'}
-            </Text>
-            
-            <TouchableOpacity 
-              style={styles.uploadButton}
-              onPress={() => handleSelectFile(field)}
-              disabled={!!currentUpload}
-            >
-              <Text style={styles.buttonText}>
-                {formData.documentos[field]?.uri ? 'Reemplazar archivo' : 'Seleccionar archivo'}
-              </Text>
-            </TouchableOpacity>
-            
-            {renderFileInfo(field)}
-          </View>
-        ))}
-
-        <View style={styles.regulationContainer}>
-          <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
-          
-          <TouchableOpacity 
-            onPress={() => Linking.openURL('https://clubtoros.com/politicas/reglamentoToros.pdf')} 
-            style={styles.regulationLink}
-          >
-            <Text style={styles.regulationLinkText}>Descargue, lea y firme el reglamento</Text>
-          </TouchableOpacity>
-          
-          <View style={styles.checkboxContainer}>
-            <TouchableOpacity 
-              style={[styles.checkbox, acceptedRegulation && styles.checkboxChecked]}
-              onPress={() => setAcceptedRegulation(!acceptedRegulation)}
-            >
-              {acceptedRegulation && <Text style={styles.checkmark}>✓</Text>}
-            </TouchableOpacity>
-            <Text style={styles.regulationText}>
-              Confirmo que he leído y acepto el reglamento del equipo
-            </Text>
-          </View>
-        </View>
-
-        <TouchableOpacity 
-          style={[
-            styles.submitButton,
-            (!acceptedRegulation || currentUpload) && styles.disabledButton
-          ]} 
-          onPress={onSubmit}
-          disabled={!acceptedRegulation || !!currentUpload}
-        >
-          <Text style={styles.submitButtonText}>
-            {currentUpload ? 'Subiendo archivos...' : 'Finalizar Registro'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
-  );
-}; 
-*/
 
 const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, currentUpload, handleSelectFile }) => {
   const [acceptedRegulation, setAcceptedRegulation] = useState(false);

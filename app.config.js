@@ -61,7 +61,7 @@ export default {
         projectId: "940bd2e2-f080-48f0-9ef7-9723472315f9"
       }
     },
-    owner: "s21sistem",
+    owner: "21sistema",
     plugins: [
       "expo-signature",
       withFixedFirebaseModularHeaders // <- referencia directa al plugin

@@ -10,8 +10,9 @@ import {
   SafeAreaView,
   Platform,
   Image, 
-  Alert
+  Alert,
 } from "react-native";
+
 import { Calendar } from "react-native-calendars";
 import { collection, query, where, onSnapshot, getDoc, doc } from "firebase/firestore";
 import { db } from "../firebaseConfig";
@@ -20,6 +21,7 @@ import * as FileSystem from 'expo-file-system';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
+
 
 const { width, height } = Dimensions.get("window");
 
@@ -32,7 +34,6 @@ const PagosScreen = ({ route, navigation }) => {
   const [esPorrista, setEsPorrista] = useState(false);
   const [alCorriente, setAlCorriente] = useState(false);
 
-  // Función para formatear fechas de Firestore
   const formatTipoPago = (tipo) => {
     return tipo === "Túnel" ? "Aportación" : tipo;
   };
@@ -69,7 +70,6 @@ const PagosScreen = ({ route, navigation }) => {
     return null;
   };
 
-  // Función para verificar si ha pasado una semana desde el último pago
   const checkSemanaPago = (fechaUltimoPago) => {
     if (!fechaUltimoPago) return true;
     
@@ -93,7 +93,6 @@ const PagosScreen = ({ route, navigation }) => {
     return diffDias >= 7;
   };
 
-  // Función segura para formatear números
   const safeToFixed = (value, decimals = 2) => {
     const num = Number(value) || 0;
     return num.toFixed(decimals);
@@ -108,7 +107,6 @@ const PagosScreen = ({ route, navigation }) => {
     }
   }, [route.params]);
 
-  // Función para obtener datos de temporada
   const fetchTemporadaData = async (temporadaInfo) => {
     try {
       if (!temporadaInfo) return;
@@ -182,80 +180,92 @@ const PagosScreen = ({ route, navigation }) => {
       where(fieldName, "==", jugadorId)
     );
 
-    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
-      try {
-        if (!querySnapshot.empty) {
-          const docData = querySnapshot.docs[0].data();
-          
-         const pagosFormateados = docData.pagos.map((pago) => {
-  // Determinar el estado basado en el total abonado
-  const totalAbonado = pago.total_abonado || 0;
-  const montoPago = pago.monto || 0;
-  const estatus = totalAbonado >= montoPago ? "pagado" : (pago.estatus || "pendiente");
+      const unsubscribe = onSnapshot(q, async (querySnapshot) => {
+        try {
+          if (!querySnapshot.empty) {
+            const docData = querySnapshot.docs[0].data();
+            
+              const transformedData = {
+                id: querySnapshot.docs[0].id,
+                jugadorId: jugadorId,
+                monto_total: docData.monto_total || 0,
+                nombre_jugador: docData.nombre || (esPorrista ? "Porrista" : "Jugador"),
+                categoria: docData.categoria || null,
+                temporadaId: docData.temporadaId || null,
+                fecha_registro: docData.fecha_registro || new Date().toISOString().split('T')[0],
+                pagos: docData.pagos.map(pago => {
+                  const abonos = pago.abonos || [];
+                  const totalAbonado = abonos.reduce((sum, abono) => {
+                    const cantidad = Number(abono.cantidad) || 0;
+                    return sum + cantidad;
+                  }, 0);
+                  
+                  const montoPago = Number(pago.monto) || 0;
+                  const totalRestante = Number(pago.total_restante) || 0;
+                  
+                  // Determinar el estado basado en total_restante en lugar de estatus
+                  const estatus = totalRestante <= 0 ? "pagado" : "pendiente";
+                  
+                  return {
+                    ...pago,
+                    id: pago.id || `${jugadorId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    estatus, // Usamos el nuevo estatus calculado
+                    fecha_limite: pago.fecha_limite || null,
+                    fecha_pago: pago.fecha_pago || null,
+                    monto: montoPago,
+                    tipo: pago.tipo || "Pago",
+                    beca: pago.beca || "0",
+                    descuento: pago.descuento || "0",
+                    prorroga: pago.prorroga || false,
+                    metodo_pago: pago.metodo_pago || null,
+                    abono: pago.abono || "NO",
+                    abonos: abonos,
+                    total_abonado: totalAbonado,
+                    submonto: Number(pago.submonto) || 0,
+                    saldo_pendiente: Math.max(0, totalRestante), // Usamos total_restante directamente
+                    total_restante: totalRestante // Mantenemos el campo original
+                  };
+                })
+              };
 
-  return {
-    estatus: estatus,
-    fecha_limite: pago.fecha_limite || null,
-    fecha_pago: pago.fecha_pago || null,
-    monto: montoPago,
-    tipo: pago.tipo || "Pago",
-    beca: pago.beca || "0",
-    descuento: pago.descuento || "0",
-    prorroga: pago.prorroga || false,
-    metodo_pago: pago.metodo_pago || null,
-    abono: pago.abono || "NO",
-    abonos: pago.abonos || [],
-    total_abonado: totalAbonado,
-    submonto: pago.submonto || 0
-  };
-});
 
-          if (docData.temporadaId) {
-            await fetchTemporadaData(docData.temporadaId);
+          // Calcular totales después de transformar los pagos
+              
+              transformedData.monto_total_pagado = transformedData.pagos.reduce((sum, pago) => {
+                return sum + (pago.total_abonado || 0);
+              }, 0);
+
+              transformedData.monto_total_pendiente = transformedData.pagos.reduce((sum, pago) => {
+                return sum + (Math.max(0, pago.total_restante || 0));
+              }, 0);
+
+
+
+            if (docData.temporadaId) {
+              await fetchTemporadaData(docData.temporadaId);
+            }
+
+            setPagoData(transformedData);
+            setAlCorriente(transformedData.monto_total_pendiente <= 0);
+          } else {
+            setError(`No se encontraron datos de pagos para este ${esPorrista ? "porrista" : "jugador"}.`);
           }
-
-            const montoTotalPagado = docData.monto_total_pagado || pagosFormateados
-      .filter(pago => pago.estatus === "pagado")
-      .reduce((sum, pago) => sum + (pago.submonto || pago.monto), 0);
-
-    const montoTotalPendiente = docData.monto_total_pendiente || pagosFormateados
-      .filter(pago => pago.estatus === "pendiente")
-      .reduce((sum, pago) => sum + (pago.monto - (pago.total_abonado || 0)), 0);
-
-          const transformedData = {
-            id: querySnapshot.docs[0].id,
-            jugadorId: jugadorId,
-            monto_total: docData.monto_total || 0,
-            monto_total_pagado: montoTotalPagado,
-            monto_total_pendiente: montoTotalPendiente,
-            nombre_jugador: docData.nombre || (esPorrista ? "Porrista" : "Jugador"),
-            categoria: docData.categoria || null,
-            temporadaId: docData.temporadaId || null,
-            fecha_registro: docData.fecha_registro || new Date().toISOString().split('T')[0],
-            pagos: pagosFormateados,
-          };
-          
-          setPagoData(transformedData);
-          setAlCorriente(montoTotalPendiente <= 0);
-        } else {
-          setError(`No se encontraron datos de pagos para este ${esPorrista ? "porrista" : "jugador"}.`);
+        } catch (error) {
+          console.error("Error al obtener los pagos:", error);
+          setError("Error al cargar los pagos. Inténtalo de nuevo.");
+        } finally {
+          setLoading(false);
         }
-      } catch (error) {
-        console.error("Error al obtener los pagos:", error);
-        setError("Error al cargar los pagos. Inténtalo de nuevo.");
-      } finally {
+      }, (error) => {
+        console.error("Error en la suscripción:", error);
+        setError("Error en la conexión con la base de datos.");
         setLoading(false);
-      }
-    }, (error) => {
-      console.error("Error en la suscripción:", error);
-      setError("Error en la conexión con la base de datos.");
-      setLoading(false);
-    });
+      });
 
     return () => unsubscribe();
   }, [jugadorId, esPorrista]);
 
-  const generatePDF = async (pago) => {
+const generatePDF = async (pago) => {
     let logoBase64 = '';
     try {
       if (Platform.OS !== 'web') {
@@ -279,7 +289,8 @@ const PagosScreen = ({ route, navigation }) => {
         month: '2-digit',
         year: 'numeric'
       });
-  
+
+      let logo = 'https://clubtoros.com/img/logo.jpg';
 
       const html = `
       <html>
@@ -296,17 +307,17 @@ const PagosScreen = ({ route, navigation }) => {
               display: flex;
               flex-direction: column;
               align-items: center;
-              margin-bottom: 25px;
+              margin-bottom: 20px;
               border-bottom: 2px solid #eaeaea;
-              padding-bottom: 20px;
+              padding-bottom: 15px;
             }
             .logo {
-              height: 80px;
+              height: 60px;
               width: auto;
               margin-bottom: 15px;
             }
             .title { 
-              font-size: 22px; 
+              font-size: 20px; 
               font-weight: bold;
               color: #2c3e50;
               margin: 10px 0 5px 0;
@@ -317,7 +328,7 @@ const PagosScreen = ({ route, navigation }) => {
               margin-bottom: 5px;
             }
             .section {
-              margin-bottom: 25px;
+              margin-bottom: 15px;
               background: #f9f9f9;
               padding: 15px 20px;
               border-radius: 5px;
@@ -351,7 +362,7 @@ const PagosScreen = ({ route, navigation }) => {
             }
             .footer {
               text-align: center;
-              margin-top: 30px;
+              margin-top: 10px;
               font-size: 12px;
               color: #95a5a6;
               border-top: 1px solid #eee;
@@ -361,7 +372,7 @@ const PagosScreen = ({ route, navigation }) => {
               background-color: #e3f2fd;
               padding: 10px;
               border-radius: 5px;
-              margin-bottom: 15px;
+              margin-bottom: 10px;
               text-align: center;
               font-weight: bold;
             }
@@ -369,7 +380,8 @@ const PagosScreen = ({ route, navigation }) => {
         </head>
         <body>
           <div class="header">
-            ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Logo Club Toros" />` : ''}
+            ${logo ? `<img src="${logo}" class="logo" alt="Logo Club Toros" />` : ''}
+
             <div class="title">COMPROBANTE DE PAGO</div>
             <div class="subtitle">${esPorrista ? 'Porrista' : 'Jugador'}</div>
           </div>
@@ -408,6 +420,39 @@ const PagosScreen = ({ route, navigation }) => {
               <div class="info-label">Submonto:</div>
               <div class="info-value">$${safeToFixed(pago.submonto)}</div>
             </div>` : ''}
+            ${pago.abonos && pago.abonos.length > 0 ? `
+              <div class="section">
+                <h3>Detalle de Abonos</h3>
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
+                  <thead>
+                    <tr style="background-color: #f5f5f5;">
+                      <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Fecha</th>
+                      <th style="padding: 8px; text-align: right; border-bottom: 1px solid #ddd;">Monto</th>
+                      <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Método</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${pago.abonos.map(abono => `
+                    <tr>
+                      <td style="padding: 8px; border-bottom: 1px solid #eee;">${abono.fecha || 'No especificada'}</td>
+                      <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">$${safeToFixed(abono.cantidad)}</td>
+                      <td style="padding: 8px; border-bottom: 1px solid #eee;">${abono.metodo || 'No especificado'}</td>
+                    </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+                <div style="display: flex; justify-content: space-between; margin-top: 10px;">
+                  <div style="font-weight: bold;">Total abonado:</div>
+                  <div style="font-weight: bold;">$${safeToFixed(pago.total_abonado)}</div>
+                </div>
+                ${pago.estatus === 'pendiente' ? `
+                <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+                  <div style="font-weight: bold; color: #e53935;">Saldo pendiente:</div>
+                  <div style="font-weight: bold; color: #e53935;">$${safeToFixed(pago.saldo_pendiente)}</div>
+                </div>
+                ` : ''}
+              </div>
+              ` : ''}
             ${pago.fecha_limite ? `
             <div class="info-row">
               <div class="info-label">Fecha límite:</div>
@@ -447,7 +492,7 @@ const PagosScreen = ({ route, navigation }) => {
           </div>
           
           <div class="footer">
-            Documento generado el ${formattedDate} - Club Toros © ${today.getFullYear()}
+            Documento generado el ${formattedDate} - Club Toros © Unidad Deportiva Cedeco, San Nicolás de los Garza Nuevo León, Tel: 8180507808 ${today.getFullYear()}
           </div>
         </body>
       </html>`;
@@ -488,7 +533,7 @@ const PagosScreen = ({ route, navigation }) => {
       </View>
     );
   }
-  
+
   if (error) {
     return (
       <View style={styles.errorContainer}>
@@ -522,6 +567,12 @@ const PagosScreen = ({ route, navigation }) => {
           contentContainerStyle={styles.scrollContent}
         >
           <View style={styles.header}>
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+            >
+              <Ionicons name="arrow-back" size={24} color="#333" />
+            </TouchableOpacity>
             <Text style={styles.headerTitle}>
               Pagos de {pagoData.nombre_jugador}
             </Text>
@@ -574,7 +625,10 @@ const PagosScreen = ({ route, navigation }) => {
                             return pagoDate === date.dateString;
                           });
                           if (pago) {
-                            alert(`Pago ${pago.estatus}\nTipo: ${formatTipoPago(pago.tipo)}\nMonto: $${pago.monto}\nFecha: ${pago.fecha_limite}`);
+                            Alert.alert(
+                              `Detalle de pago`,
+                              `Tipo: ${formatTipoPago(pago.tipo)}\nMonto: $${pago.monto}\nEstado: ${pago.estatus}\nFecha límite: ${pago.fecha_limite}`
+                            );
                           }
                         }
                       }}
@@ -612,28 +666,6 @@ const PagosScreen = ({ route, navigation }) => {
             )}
             
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>{esPorrista ? "Porrista:" : "Jugador:"}</Text>
-              <Text style={styles.summaryValue}>
-                {pagoData.nombre_jugador}
-              </Text>
-            </View>
-            {pagoData.categoria && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Categoría:</Text>
-                <Text style={styles.summaryValue}>
-                  {pagoData.categoria}
-                </Text>
-              </View>
-            )}
-            {temporadaData && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Temporada:</Text>
-                <Text style={styles.summaryValue}>
-                  {temporadaData.label}
-                </Text>
-              </View>
-            )}
-            <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Total:</Text>
               <Text style={styles.summaryValue}>
                 ${safeToFixed(pagoData.monto_total)}
@@ -651,26 +683,40 @@ const PagosScreen = ({ route, navigation }) => {
                 ${safeToFixed(pagoData.monto_total_pendiente)}
               </Text>
             </View>
+
+            {pagoData.categoria && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Categoría:</Text>
+                <Text style={styles.summaryValue}>
+                  {pagoData.categoria}
+                </Text>
+              </View>
+            )}
+            {temporadaData && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Temporada:</Text>
+                <Text style={styles.summaryValue}>
+                  {temporadaData.label}
+                </Text>
+              </View>
+            )}
           </View>
 
           <Text style={styles.sectionTitle}>Detalle de Pagos</Text>
 
           {pagoData.pagos.map((pago, index) => {
             const esCoaching = pago.tipo.toLowerCase().includes("coaching");
-              let estatusMostrado = pago.estatus;
+              let estatusMostrado = pago.estatus; 
 
               if (esCoaching && pago.fecha_pago) {
-                estatusMostrado = checkSemanaPago(pago.fecha_pago) ? "pendiente" : "Cubierto esta semana";
-              } else {
-                // Asegurarnos que el estado sea consistente con los abonos
-                const totalAbonado = pago.total_abonado || 0;
-                const montoPago = pago.monto || 0;
-                estatusMostrado = totalAbonado >= montoPago ? pago.estatus : pago.estatus;
+                estatusMostrado = checkSemanaPago(pago.fecha_pago) ? 
+                  (pago.total_restante > 0 ? "pendiente" : "pagado") : 
+                  "Cubierto esta semana";
               }
 
             return (
               <View
-                key={index}
+                key={pago.id || index}
                 style={[
                   styles.paymentCard,
                   estatusMostrado === "pendiente"
@@ -680,26 +726,33 @@ const PagosScreen = ({ route, navigation }) => {
               >
                 <View style={styles.paymentHeader}>
                   <Text style={styles.paymentType}>{formatTipoPago(pago.tipo)}</Text>
-                  <Text
-                    style={[
-                      styles.paymentStatus,
-                      estatusMostrado === "pendiente"
-                        ? styles.pendingText
-                        : styles.paidText,
-                    ]}
-                  >
-                    {estatusMostrado.toUpperCase()}
-                  </Text>
+                  <View style={styles.paymentStatusContainer}>
+                    <Text
+                      style={[
+                        styles.paymentStatus,
+                        estatusMostrado === "pendiente"
+                          ? styles.pendingText
+                          : styles.paidText,
+                      ]}
+                    >
+                      {estatusMostrado.toUpperCase()}
+                    </Text>
+                    {pago.abono === "SI" && (
+                      <Text style={styles.abonoBadge}>CON ABONOS</Text>
+                    )}
+                  </View>
                 </View>
 
-                <Text style={styles.paymentAmount}>${safeToFixed(pago.monto)}</Text>
+                <View style={styles.paymentAmountRow}>
+                  <Text style={styles.paymentAmountLabel}>Monto total:</Text>
+                  <Text style={styles.paymentAmount}>${safeToFixed(pago.monto)}</Text>
+                </View>
 
                 {pago.abonos && pago.abonos.length > 0 && (
                   <View style={styles.abonosContainer}>
                     <Text style={styles.abonosTitle}>Detalle de abonos:</Text>
                     {pago.abonos.map((abono, abonoIndex) => (
-                      <View key={abonoIndex} style={styles.abonoRow}>
-                        {console.log(abono)}
+                      <View key={`abono_${abonoIndex}`} style={styles.abonoRow}>
                         <Text style={styles.abonoFecha}>{abono.fecha || 'Sin fecha'}:</Text>
                         <Text style={styles.abonoMonto}>${safeToFixed(abono.cantidad)}</Text>
                         {abono.metodo && (
@@ -711,6 +764,14 @@ const PagosScreen = ({ route, navigation }) => {
                       <Text style={styles.abonoTotalLabel}>Total abonado:</Text>
                       <Text style={styles.abonoTotalMonto}>${safeToFixed(pago.total_abonado || 0)}</Text>
                     </View>
+                    {pago.estatus === "pendiente" && (
+                      <View style={styles.abonoTotalRow}>
+                        <Text style={styles.abonoTotalLabel}>Saldo pendiente:</Text>
+                        <Text style={[styles.abonoTotalMonto, styles.pendingAmount]}>
+                          ${safeToFixed(pago.saldo_pendiente)}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 )}
 
@@ -749,15 +810,6 @@ const PagosScreen = ({ route, navigation }) => {
                   </View>
                 )}
 
-                {pago.abono === "SI" && pago.abonos.length === 0 && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Abonos:</Text>
-                    <Text style={styles.detailValue}>
-                      ${safeToFixed(pago.total_abonado)} de ${safeToFixed(pago.monto)}
-                    </Text>
-                  </View>
-                )}
-
                 {pago.metodo_pago && (
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Método de pago:</Text>
@@ -780,7 +832,6 @@ const PagosScreen = ({ route, navigation }) => {
   );
 };
 
-// Estilos
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -803,11 +854,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 20,
     width: "100%",
+    position: 'relative',
   },
   backButton: {
-    marginRight: 15,
     position: "absolute",
     left: 0,
+    zIndex: 1,
   },
   headerTitle: {
     fontSize: 22,
@@ -951,6 +1003,10 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#333",
   },
+  paymentStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   paymentStatus: {
     fontSize: 13,
     fontWeight: "bold",
@@ -966,11 +1022,30 @@ const styles = StyleSheet.create({
     backgroundColor: "#E8F5E9",
     color: "#388E3C",
   },
+  abonoBadge: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#fff',
+    backgroundColor: '#17a2b8',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 5,
+  },
+  paymentAmountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  paymentAmountLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
   paymentAmount: {
     fontSize: 16,
     fontWeight: "bold",
     color: "#333",
-    marginBottom: 6,
   },
   detailRow: {
     flexDirection: "row",

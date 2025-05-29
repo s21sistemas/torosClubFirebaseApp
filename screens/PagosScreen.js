@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
-  View,Text,
+  View, Text,
   StyleSheet,
   TouchableOpacity,
   Linking,
@@ -33,6 +33,10 @@ const PagosScreen = ({ route, navigation }) => {
   const [alCorriente, setAlCorriente] = useState(false);
 
   // Función para formatear fechas de Firestore
+  const formatTipoPago = (tipo) => {
+    return tipo === "Túnel" ? "Aportación" : tipo;
+  };
+
   const formatFirestoreDate = (dateString) => {
     if (!dateString) return null;
     
@@ -49,7 +53,50 @@ const PagosScreen = ({ route, navigation }) => {
       return date.toISOString().split('T')[0];
     }
     
+    if (dateString instanceof Date) {
+      return dateString.toISOString().split('T')[0];
+    }
+    
+    try {
+      const date = new Date(dateString);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch (e) {
+      console.warn("No se pudo parsear la fecha:", dateString);
+    }
+    
     return null;
+  };
+
+  // Función para verificar si ha pasado una semana desde el último pago
+  const checkSemanaPago = (fechaUltimoPago) => {
+    if (!fechaUltimoPago) return true;
+    
+    let fechaPago;
+    if (typeof fechaUltimoPago === 'string') {
+      const parts = fechaUltimoPago.split(/[/-]/);
+      fechaPago = new Date(parts[0], parts[1] - 1, parts[2]);
+    } else if (fechaUltimoPago.seconds) {
+      fechaPago = new Date(fechaUltimoPago.seconds * 1000);
+    } else {
+      fechaPago = new Date(fechaUltimoPago);
+    }
+    
+    const hoy = new Date();
+    const fechaPagoMidnight = new Date(fechaPago.getFullYear(), fechaPago.getMonth(), fechaPago.getDate());
+    const hoyMidnight = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    
+    const diffTiempo = hoyMidnight.getTime() - fechaPagoMidnight.getTime();
+    const diffDias = diffTiempo / (1000 * 60 * 60 * 24);
+    
+    return diffDias >= 7;
+  };
+
+  // Función segura para formatear números
+  const safeToFixed = (value, decimals = 2) => {
+    const num = Number(value) || 0;
+    return num.toFixed(decimals);
   };
 
   useEffect(() => {
@@ -61,18 +108,16 @@ const PagosScreen = ({ route, navigation }) => {
     }
   }, [route.params]);
 
-  // Función mejorada para obtener datos de temporada
+  // Función para obtener datos de temporada
   const fetchTemporadaData = async (temporadaInfo) => {
     try {
       if (!temporadaInfo) return;
       
-      // Si ya es un objeto con label y value (formato nuevo)
       if (temporadaInfo.label && temporadaInfo.value) {
         setTemporadaData(temporadaInfo);
         return;
       }
       
-      // Si es solo el ID (formato antiguo)
       if (typeof temporadaInfo === 'string') {
         const temporadaRef = doc(db, "temporadas", temporadaInfo);
         const temporadaSnap = await getDoc(temporadaRef);
@@ -142,36 +187,40 @@ const PagosScreen = ({ route, navigation }) => {
         if (!querySnapshot.empty) {
           const docData = querySnapshot.docs[0].data();
           
-          // Formatear los pagos
-          const pagosFormateados = docData.pagos.map((pago) => ({
-            estatus: pago.estatus || "pendiente",
-            fecha_limite: pago.fecha_limite || null,
-            fecha_pago: pago.fecha_pago || null,
-            monto: pago.monto || 0,
-            tipo: pago.tipo || "Pago",
-            beca: pago.beca || "0",
-            descuento: pago.descuento || "0",
-            prorroga: pago.prorroga || false,
-            metodo_pago: pago.metodo_pago || null,
-            abono: pago.abono || "NO",
-            abonos: pago.abonos || [],
-            total_abonado: pago.total_abonado || 0,
-            submonto: pago.submonto || 0
-          }));
+         const pagosFormateados = docData.pagos.map((pago) => {
+  // Determinar el estado basado en el total abonado
+  const totalAbonado = pago.total_abonado || 0;
+  const montoPago = pago.monto || 0;
+  const estatus = totalAbonado >= montoPago ? "pagado" : (pago.estatus || "pendiente");
 
-          // Obtener datos de la temporada (maneja ambos formatos)
+  return {
+    estatus: estatus,
+    fecha_limite: pago.fecha_limite || null,
+    fecha_pago: pago.fecha_pago || null,
+    monto: montoPago,
+    tipo: pago.tipo || "Pago",
+    beca: pago.beca || "0",
+    descuento: pago.descuento || "0",
+    prorroga: pago.prorroga || false,
+    metodo_pago: pago.metodo_pago || null,
+    abono: pago.abono || "NO",
+    abonos: pago.abonos || [],
+    total_abonado: totalAbonado,
+    submonto: pago.submonto || 0
+  };
+});
+
           if (docData.temporadaId) {
             await fetchTemporadaData(docData.temporadaId);
           }
 
-          // Calcular montos
-          const montoTotalPagado = docData.monto_total_pagado || pagosFormateados
-            .filter(pago => pago.estatus === "pagado")
-            .reduce((sum, pago) => sum + (pago.submonto || pago.monto), 0);
+            const montoTotalPagado = docData.monto_total_pagado || pagosFormateados
+      .filter(pago => pago.estatus === "pagado")
+      .reduce((sum, pago) => sum + (pago.submonto || pago.monto), 0);
 
-          const montoTotalPendiente = docData.monto_total_pendiente || pagosFormateados
-            .filter(pago => pago.estatus === "pendiente")
-            .reduce((sum, pago) => sum + (pago.monto - (pago.total_abonado || 0)), 0);
+    const montoTotalPendiente = docData.monto_total_pendiente || pagosFormateados
+      .filter(pago => pago.estatus === "pendiente")
+      .reduce((sum, pago) => sum + (pago.monto - (pago.total_abonado || 0)), 0);
 
           const transformedData = {
             id: querySnapshot.docs[0].id,
@@ -209,29 +258,21 @@ const PagosScreen = ({ route, navigation }) => {
   const generatePDF = async (pago) => {
     let logoBase64 = '';
     try {
-      // Convertir la imagen a base64 (solo para móvil)
       if (Platform.OS !== 'web') {
         try {
-          // Importar la imagen directamente
-          const image = require('../assets/iconToros.png');
-          
-          // Leer el archivo como base64
+          const image = require('../assets/logoToros.jpg');
           logoBase64 = await FileSystem.readAsStringAsync(
             Image.resolveAssetSource(image).uri, 
             { encoding: FileSystem.EncodingType.Base64 }
           );
-          
-          // Formatear como URI de datos
           logoBase64 = `data:image/jpeg;base64,${logoBase64}`;
         } catch (imageError) {
           console.warn('No se pudo cargar la imagen del logo:', imageError);
         }
       } else {
-        // Para web (usa la ruta pública)
         logoBase64 = '/logoToros.jpg';
       }
   
-      // Obtener la fecha actual formateada
       const today = new Date();
       const formattedDate = today.toLocaleDateString('es-MX', {
         day: '2-digit',
@@ -239,7 +280,7 @@ const PagosScreen = ({ route, navigation }) => {
         year: 'numeric'
       });
   
-      // Crear el HTML para el PDF
+
       const html = `
       <html>
         <head>
@@ -356,16 +397,16 @@ const PagosScreen = ({ route, navigation }) => {
             <h3>Detalles del Pago</h3>
             <div class="info-row">
               <div class="info-label">Concepto:</div>
-              <div class="info-value">${pago.tipo}</div>
+              <div class="info-value">${formatTipoPago(pago.tipo)}</div>
             </div>
             <div class="info-row">
               <div class="info-label">Monto:</div>
-              <div class="info-value">$${pago.monto.toFixed(2)}</div>
+              <div class="info-value">$${safeToFixed(pago.monto)}</div>
             </div>
             ${pago.submonto > 0 ? `
             <div class="info-row">
               <div class="info-label">Submonto:</div>
-              <div class="info-value">$${pago.submonto.toFixed(2)}</div>
+              <div class="info-value">$${safeToFixed(pago.submonto)}</div>
             </div>` : ''}
             ${pago.fecha_limite ? `
             <div class="info-row">
@@ -396,10 +437,10 @@ const PagosScreen = ({ route, navigation }) => {
             ${pago.abono === "SI" ? `
             <div class="info-row">
               <div class="info-label">Abonos:</div>
-              <div class="info-value">$${pago.total_abonado.toFixed(2)} de $${pago.monto.toFixed(2)}</div>
+              <div class="info-value">$${safeToFixed(pago.total_abonado)} de $${safeToFixed(pago.monto)}</div>
             </div>` : ''}
             ${pago.metodo_pago ? `
-            <div class="info-row">
+            <div class="info-row"> 
               <div class="info-label">Método de pago:</div>
               <div class="info-value">${pago.metodo_pago}</div>
             </div>` : ''}
@@ -447,7 +488,7 @@ const PagosScreen = ({ route, navigation }) => {
       </View>
     );
   }
-
+  
   if (error) {
     return (
       <View style={styles.errorContainer}>
@@ -481,18 +522,11 @@ const PagosScreen = ({ route, navigation }) => {
           contentContainerStyle={styles.scrollContent}
         >
           <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={styles.backButton}
-            >
-              <Ionicons name="arrow-back" size={24} color="#000" />
-            </TouchableOpacity>
             <Text style={styles.headerTitle}>
               Pagos de {pagoData.nombre_jugador}
             </Text>
           </View>
 
-          {/* Mostrar información de la temporada */}
           {temporadaData && (
             <View style={styles.temporadaContainer}>
               <Text style={styles.temporadaText}>
@@ -534,16 +568,16 @@ const PagosScreen = ({ route, navigation }) => {
                     ]}
                     disabled={state === 'disabled'}
                     onPress={() => {
-                      if (isMarked) {
-                        const pago = pagoData.pagos.find(p => {
-                          const pagoDate = formatFirestoreDate(p.fecha_limite);
-                          return pagoDate === date.dateString;
-                        });
-                        if (pago) {
-                          alert(`Pago ${pago.estatus}\nTipo: ${pago.tipo}\nMonto: $${pago.monto}\nFecha: ${pago.fecha_limite}`);
+                        if (isMarked) {
+                          const pago = pagoData.pagos.find(p => {
+                            const pagoDate = formatFirestoreDate(p.fecha_limite);
+                            return pagoDate === date.dateString;
+                          });
+                          if (pago) {
+                            alert(`Pago ${pago.estatus}\nTipo: ${formatTipoPago(pago.tipo)}\nMonto: $${pago.monto}\nFecha: ${pago.fecha_limite}`);
+                          }
                         }
-                      }
-                    }}
+                      }}
                   >
                     <Text style={[
                       styles.calendarDayText,
@@ -602,116 +636,151 @@ const PagosScreen = ({ route, navigation }) => {
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Total:</Text>
               <Text style={styles.summaryValue}>
-                ${pagoData.monto_total.toFixed(2)}
+                ${safeToFixed(pagoData.monto_total)}
               </Text>
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Pagado:</Text>
               <Text style={[styles.summaryValue, styles.paidAmount]}>
-                ${pagoData.monto_total_pagado.toFixed(2)}
+                ${safeToFixed(pagoData.monto_total_pagado)}
               </Text>
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Pendiente:</Text>
               <Text style={[styles.summaryValue, styles.pendingAmount]}>
-                ${pagoData.monto_total_pendiente.toFixed(2)}
+                ${safeToFixed(pagoData.monto_total_pendiente)}
               </Text>
             </View>
           </View>
 
           <Text style={styles.sectionTitle}>Detalle de Pagos</Text>
 
-          {pagoData.pagos.map((pago, index) => (
-            <View
-              key={index}
-              style={[
-                styles.paymentCard,
-                pago.estatus === "pendiente"
-                  ? styles.pendingCard
-                  : styles.paidCard,
-              ]}
-            >
-              <View style={styles.paymentHeader}>
-                <Text style={styles.paymentType}>{pago.tipo}</Text>
-                <Text
-                  style={[
-                    styles.paymentStatus,
-                    pago.estatus === "pendiente"
-                      ? styles.pendingText
-                      : styles.paidText,
-                  ]}
-                >
-                  {pago.estatus.toUpperCase()}
-                </Text>
-              </View>
+          {pagoData.pagos.map((pago, index) => {
+            const esCoaching = pago.tipo.toLowerCase().includes("coaching");
+              let estatusMostrado = pago.estatus;
 
-              <Text style={styles.paymentAmount}>${pago.monto.toFixed(2)}</Text>
+              if (esCoaching && pago.fecha_pago) {
+                estatusMostrado = checkSemanaPago(pago.fecha_pago) ? "pendiente" : "Cubierto esta semana";
+              } else {
+                // Asegurarnos que el estado sea consistente con los abonos
+                const totalAbonado = pago.total_abonado || 0;
+                const montoPago = pago.monto || 0;
+                estatusMostrado = totalAbonado >= montoPago ? pago.estatus : pago.estatus;
+              }
 
-              {pago.submonto > 0 && (
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Submonto:</Text>
-                  <Text style={styles.detailValue}>${pago.submonto.toFixed(2)}</Text>
-                </View>
-              )}
-
-              {pago.fecha_limite && (
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Fecha límite:</Text>
-                  <Text style={styles.detailValue}>{pago.fecha_limite}</Text>
-                </View>
-              )}
-
-              {pago.fecha_pago && pago.estatus === "pagado" && (
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Fecha de pago:</Text>
-                  <Text style={styles.detailValue}>{pago.fecha_pago}</Text>
-                </View>
-              )}
-
-              {(pago.beca && pago.beca !== "0") && (
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Beca aplicada:</Text>
-                  <Text style={styles.detailValue}>{pago.beca}%</Text>
-                </View>
-              )}
-
-              {(pago.descuento && pago.descuento !== "0") && (
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Descuento aplicado:</Text>
-                  <Text style={styles.detailValue}>{pago.descuento}%</Text>
-                </View>
-              )}
-
-              {pago.abono === "SI" && (
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Abonos:</Text>
-                  <Text style={styles.detailValue}>
-                    ${pago.total_abonado.toFixed(2)} de ${pago.monto.toFixed(2)}
+            return (
+              <View
+                key={index}
+                style={[
+                  styles.paymentCard,
+                  estatusMostrado === "pendiente"
+                    ? styles.pendingCard
+                    : styles.paidCard,
+                ]}
+              >
+                <View style={styles.paymentHeader}>
+                  <Text style={styles.paymentType}>{formatTipoPago(pago.tipo)}</Text>
+                  <Text
+                    style={[
+                      styles.paymentStatus,
+                      estatusMostrado === "pendiente"
+                        ? styles.pendingText
+                        : styles.paidText,
+                    ]}
+                  >
+                    {estatusMostrado.toUpperCase()}
                   </Text>
                 </View>
-              )}
 
-              {pago.metodo_pago && (
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Método de pago:</Text>
-                  <Text style={styles.detailValue}>{pago.metodo_pago}</Text>
-                </View>
-              )}
+                <Text style={styles.paymentAmount}>${safeToFixed(pago.monto)}</Text>
 
-              <TouchableOpacity
-                style={styles.downloadButton}
-                onPress={() => generatePDF(pago)}
-              >
-                <Text style={styles.downloadButtonText}>Generar recibo</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
+                {pago.abonos && pago.abonos.length > 0 && (
+                  <View style={styles.abonosContainer}>
+                    <Text style={styles.abonosTitle}>Detalle de abonos:</Text>
+                    {pago.abonos.map((abono, abonoIndex) => (
+                      <View key={abonoIndex} style={styles.abonoRow}>
+                        {console.log(abono)}
+                        <Text style={styles.abonoFecha}>{abono.fecha || 'Sin fecha'}:</Text>
+                        <Text style={styles.abonoMonto}>${safeToFixed(abono.cantidad)}</Text>
+                        {abono.metodo && (
+                          <Text style={styles.abonoMetodo}>({abono.metodo})</Text>
+                        )}
+                      </View>
+                    ))}
+                    <View style={styles.abonoTotalRow}>
+                      <Text style={styles.abonoTotalLabel}>Total abonado:</Text>
+                      <Text style={styles.abonoTotalMonto}>${safeToFixed(pago.total_abonado || 0)}</Text>
+                    </View>
+                  </View>
+                )}
+
+                {pago.submonto > 0 && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Submonto:</Text>
+                    <Text style={styles.detailValue}>${safeToFixed(pago.submonto)}</Text>
+                  </View>
+                )}
+
+                {pago.fecha_limite && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Fecha límite:</Text>
+                    <Text style={styles.detailValue}>{pago.fecha_limite}</Text>
+                  </View>
+                )}
+
+                {pago.fecha_pago && estatusMostrado === "pagado" && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Fecha de pago:</Text>
+                    <Text style={styles.detailValue}>{pago.fecha_pago}</Text>
+                  </View>
+                )}
+
+                {(pago.beca && pago.beca !== "0") && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Beca aplicada:</Text>
+                    <Text style={styles.detailValue}>{pago.beca}%</Text>
+                  </View>
+                )}
+
+                {(pago.descuento && pago.descuento !== "0") && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Descuento aplicado:</Text>
+                    <Text style={styles.detailValue}>{pago.descuento}%</Text>
+                  </View>
+                )}
+
+                {pago.abono === "SI" && pago.abonos.length === 0 && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Abonos:</Text>
+                    <Text style={styles.detailValue}>
+                      ${safeToFixed(pago.total_abonado)} de ${safeToFixed(pago.monto)}
+                    </Text>
+                  </View>
+                )}
+
+                {pago.metodo_pago && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Método de pago:</Text>
+                    <Text style={styles.detailValue}>{pago.metodo_pago}</Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={styles.downloadButton}
+                  onPress={() => generatePDF(pago)}
+                >
+                  <Text style={styles.downloadButtonText}>Generar recibo</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
         </ScrollView>
       </View>
     </SafeAreaView>
   );
 };
 
+// Estilos
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -1010,6 +1079,58 @@ const styles = StyleSheet.create({
   temporadaText: {
     fontWeight: 'bold',
     color: '#0d47a1',
+  },
+  abonosContainer: {
+    marginTop: 8,
+    marginBottom: 8,
+    padding: 8,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  abonosTitle: {
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#495057',
+  },
+  abonoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 3,
+    paddingLeft: 5,
+  },
+  abonoFecha: {
+    fontSize: 12,
+    color: '#6c757d',
+  },
+  abonoMonto: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#28a745',
+  },
+  abonoMetodo: {
+    fontSize: 12,
+    color: '#6c757d',
+    fontStyle: 'italic',
+  },
+  abonoTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 5,
+    paddingTop: 5,
+    borderTopWidth: 1,
+    borderTopColor: '#dee2e6',
+  },
+  abonoTotalLabel: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#212529',
+  },
+  abonoTotalMonto: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#007bff',
   },
 });
 

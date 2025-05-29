@@ -2,22 +2,23 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Alert, TextInput,
   Animated, Platform, PanResponder, Linking, ActivityIndicator,
-  Image, Button, SafeAreaView, ScrollView, Keyboard, KeyboardAvoidingView, TouchableWithoutFeedback
+  Image, Button, SafeAreaView, ScrollView, KeyboardAvoidingView
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Svg, { Path } from 'react-native-svg';
-import { getStorage, ref, uploadBytes, getDownloadURL,uploadString } from 'firebase/storage';
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { getFirestore, collection, addDoc, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { auth } from '../firebaseConfig';
+import { getAuth } from 'firebase/auth';
+
+import { app } from '../firebaseConfig'; 
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
-import { captureRef } from 'react-native-view-shot';
 
 // Configuración de Firebase
-import { app } from '../firebaseConfig';
-
+//ffbe00
+const auth = getAuth(app);
 const storage = getStorage(app);
 const db = getFirestore(app);
 
@@ -28,7 +29,7 @@ const HomeScreen = ({ navigation }) => {
     apellido_p: '',
     apellido_m: '',
     sexo: '',
-    categoria: '',
+    categoria:'',
     direccion: '',
     telefono: '',
     fecha_nacimiento: new Date(),
@@ -55,10 +56,6 @@ const HomeScreen = ({ navigation }) => {
       club_anterior: '',
       temporadas_jugadas: '',
       motivo_transferencia: ''
-    }, 
-    temporadaId: {
-      label:'',
-      value:''
     }
   });
 
@@ -68,8 +65,7 @@ const HomeScreen = ({ navigation }) => {
   const [uploadProgress, setUploadProgress] = useState({});
   const [currentUpload, setCurrentUpload] = useState(null);
   const signatureRef = useRef(null);
-  const [acceptedRegulation, setAcceptedRegulation] = useState(false);
-
+  const [categoria, setCategoria] = useState(null);
   const steps = [
     'GeneroForm',
     'TipoInscripcionForm',
@@ -77,49 +73,144 @@ const HomeScreen = ({ navigation }) => {
     'DatosContactoForm',
     'DatosEscolaresMedicosForm',
     ...(formData.tipo_inscripcion === 'transferencia' ? ['TransferenciaForm'] : []),
-    'FirmaFotoForm'
+    'FirmaFotoForm',
+    'DocumentacionForm',
   ];
 
-  const uploadFile = async (fileUri) => {
+  // Función para subir archivos a Firebase Storage 
+  /*
+  const uploadFile = async (fileUri, fileName, folder) => {
+    try {
+      let finalUri = fileUri;
+      let blob;
+  
+      // Manejo especial para Android
+      if (Platform.OS === 'android' && fileUri.startsWith('content://')) {
+        const cacheFileUri = `${FileSystem.cacheDirectory}${fileName}`;
+        await FileSystem.copyAsync({
+          from: fileUri,
+          to: cacheFileUri
+        });
+        finalUri = cacheFileUri;
+      }
+  
+      // Convertir a blob
+      if (Platform.OS === 'web') {
+        const response = await fetch(fileUri);
+        blob = await response.blob();
+      } else {
+        const fileInfo = await FileSystem.getInfoAsync(finalUri);
+        if (!fileInfo.exists) throw new Error('El archivo no existe');
+        const response = await fetch(finalUri);
+        blob = await response.blob();
+      }
+  
+      // Subir a Storage
+      const fileExtension = fileName.split('.').pop() || (blob.type.split('/')[1] || 'jpg');
+      const newFileName = `${folder}/${Date.now()}.${fileExtension}`;
+      const storageRef = ref(storage, newFileName);
+      const uploadTask = uploadBytesResumable(storageRef, blob);
+  
+      return new Promise((resolve, reject) => {
+        uploadTask.on('state_changed',
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            setUploadProgress(prev => ({ ...prev, [folder]: progress }));
+          },
+          (error) => reject(error),
+          async () => {
+            try {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              resolve(downloadURL);
+            } catch (error) {
+              reject(error);
+            }
+          }
+        );
+      });
+    } catch (error) {
+      console.error('Error en uploadFile:', error);
+      throw error;
+    }
+  };*/
+const safeUploadFile = async ({ uri, name, folder, type = null }) => {
   try {
-    const response = await fetch(fileUri);
-    const blob = await response.blob();
+    if (!uri || !name || !folder) {
+      throw new Error('Parámetros insuficientes para la carga del archivo');
+    }
 
-    const fileName = `image_${Date.now()}.jpg`;
-    const storage = getStorage();
-    const storageRef = ref(storage, `fotos/${fileName}`);
+    console.log(`Subiendo archivo: ${name} desde ${uri.substring(0, 50)}...`);
 
-    await uploadBytes(storageRef, blob);
-    return await getDownloadURL(storageRef);
-  } catch (error) {
-    console.error("Error al subir imagen:", error);
-    throw new Error("No se pudo subir la imagen a Firebase.");
-  }
-};
+    let blob;
+    
+    // Para datos URI (como la firma)
+    if (uri.startsWith('data:')) {
+      const response = await fetch(uri);
+      blob = await response.blob();
+    } 
+    // Para Android
+    else if (Platform.OS === 'android' && uri.startsWith('content://')) {
+      const cacheFileUri = `${FileSystem.cacheDirectory}${name}`;
+      await FileSystem.copyAsync({ from: uri, to: cacheFileUri });
+      const response = await fetch(`file://${cacheFileUri}`);
+      blob = await response.blob();
+    } 
+    // Para web
+    else if (Platform.OS === 'web') {
+      const response = await fetch(uri);
+      blob = await response.blob();
+    } 
+    // Para iOS y otros casos
+    else {
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) throw new Error('El archivo no existe en la ruta especificada');
+      const response = await fetch(uri);
+      blob = await response.blob();
+    }
 
-const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') => {
-  try {
-    // 1. Leer imagen como base64
-    const base64Data = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: FileSystem.EncodingType.Base64,
+    if (!blob) {
+      throw new Error('No se pudo crear el blob del archivo');
+    }
+
+    const fileExtension = name.split('.').pop() || (blob.type?.split('/')?.[1] || 'jpg');
+    const mimeType = type || blob.type || 'application/octet-stream';
+    const fullPath = `${folder}/${Date.now()}_${name}`;
+    const storageRef = ref(storage, fullPath);
+
+    const uploadTask = uploadBytesResumable(storageRef, blob, { contentType: mimeType });
+
+    return new Promise((resolve, reject) => {
+      uploadTask.on(
+        'state_changed',
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(prev => ({ ...prev, [folder]: progress }));
+        },
+        (error) => {
+          console.error('Error durante la subida:', error);
+          reject(error);
+        },
+        async () => {
+          try {
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+            console.log(`Archivo subido con éxito: ${downloadURL}`);
+            resolve(downloadURL);
+          } catch (e) {
+            console.error('Error al obtener URL de descarga:', e);
+            reject(e);
+          }
+        }
+      );
     });
 
-    // 2. Crear referencia en Firebase Storage
-    const storage = getStorage();
-    const storageRef = ref(storage, `${folder}/${Date.now()}_${fileName}`);
-
-    // 3. Subir como string base64 con tipo especificado
-    await uploadString(storageRef, base64Data, 'base64', {
-      contentType: 'image/jpeg'
-    });
-
-    // 4. Obtener URL
-    const downloadURL = await getDownloadURL(storageRef);
-    return downloadURL;
-
   } catch (error) {
-    console.error('Error al subir imagen:', error);
-    throw new Error('No se pudo subir la imagen usando base64.');
+    console.error('Error en safeUploadFile:', {
+      error: error.message,
+      uri: uri?.substring(0, 100),
+      name,
+      folder
+    });
+    throw error;
   }
 };
 
@@ -141,10 +232,11 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
       case 'DatosPersonalesForm':
         if (!formData.nombre) newErrors.nombre = 'Nombre es requerido';
         if (!formData.apellido_p) newErrors.apellido_p = 'Apellido paterno es requerido';
+        if (!formData.curp || formData.curp.length !== 18) newErrors.curp = 'CURP debe tener 18 caracteres';
         break;
       case 'FirmaFotoForm':
+        if (formData.firma.length === 0) newErrors.firma = 'Captura tu firma';
         if (!formData.foto_jugador) newErrors.foto_jugador = 'Sube una foto del jugador';
-        if (!acceptedRegulation) newErrors.regulation = 'Debes aceptar el reglamento';
         break;
     }
     
@@ -184,7 +276,88 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
     });
   };
 
- const handleSubmit = async () => {
+  const captureSignature = async () => {
+  if (!signatureRef.current) return null;
+  
+  try {
+    // Crear un canvas temporal para la firma
+    const canvas = await signatureRef.current.toDataURL();
+    
+    // En Android/iOS necesitamos convertir el data URL a un blob
+    if (Platform.OS !== 'web') {
+      const response = await fetch(canvas);
+      const blob = await response.blob();
+      return URL.createObjectURL(blob);
+    }
+    
+    return canvas;
+  } catch (error) {
+    console.error('Error al capturar firma:', error);
+    return null;
+  }
+};
+  
+
+  const handleSelectFile = async (field) => {
+    try {
+      let result;
+      
+      if (Platform.OS === 'web') {
+        // Implementación para web
+        return new Promise((resolve) => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.pdf,.jpg,.jpeg,.png';
+          
+          input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+              setFormData(prev => ({
+                ...prev,
+                documentos: {
+                  ...prev.documentos,
+                  [field]: {
+                    uri: URL.createObjectURL(file),
+                    name: file.name,
+                    type: file.type
+                  }
+                }
+              }));
+            }
+            resolve();
+          };
+          
+          input.click();
+        });
+      } else {
+        // Implementación para móvil
+        result = await DocumentPicker.getDocumentAsync({
+          type: ['application/pdf', 'image/*'],
+          copyToCacheDirectory: true
+        });
+      }
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        setFormData(prev => ({
+          ...prev,
+          documentos: {
+            ...prev.documentos,
+            [field]: {
+              uri: file.uri,
+              name: file.name,
+              type: file.mimeType
+            }
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Error al seleccionar archivo:', error);
+      Alert.alert('Error', 'No se pudo seleccionar el archivo');
+    }
+  };
+
+const handleSubmit = async () => {
   if (!validateForm()) {
     Alert.alert('Error', 'Por favor completa todos los campos requeridos');
     return;
@@ -200,33 +373,56 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
     }
     const uid = user.uid;
 
-    // 2. Subir foto del jugador con reintentos
+    // 2. Subir archivos
     let fotoJugadorURL = null;
-    if (formData.foto_jugador) {
-      try {
-        fotoJugadorURL = await withRetry(
-          () => uploadFile(formData.foto_jugador),
-          3,
-          1000
-        );
+    if (formData.foto_jugador?.uri) {
+      setCurrentUpload('Foto del jugador');
+      fotoJugadorURL = await safeUploadFile({
+        uri: formData.foto_jugador.uri,
+        name: formData.foto_jugador.name || 'foto_jugador.jpg',
+        folder: 'fotos',
+        type: formData.foto_jugador.type || 'image/jpeg'
+      });
+    }
 
-        if (!fotoJugadorURL) {
-          throw new Error("La URL de la imagen no se pudo obtener.");
-        }
-      } catch (uploadError) {
-        console.error('Error al subir foto después de varios intentos:', uploadError);
-        throw new Error('No se pudo subir la foto. Intenta con otra imagen o verifica tu conexión.');
+    // 3. Subir documentos
+    const documentosSubidos = {};
+    const documentosFields = ['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'];
+    
+    for (const field of documentosFields) {
+      if (formData.documentos[field]?.uri) {
+        setCurrentUpload(`Documento ${field}`);
+        documentosSubidos[field] = await safeUploadFile({
+          uri: formData.documentos[field].uri,
+          name: formData.documentos[field].name || `${field}.pdf`,
+          folder: 'documentos',
+          type: formData.documentos[field].type || 'application/pdf'
+        });
       }
     }
 
-    // 3. Obtener temporada activa
+    // 4. Subir firma si existe
+    let firmaURL = null;
+    if (formData.firma.length > 0) {
+      setCurrentUpload('Firma');
+      const signatureImage = await captureSignature();
+      if (signatureImage) {
+        firmaURL = await safeUploadFile({
+          uri: signatureImage,
+          name: 'firma.png',
+          folder: 'firmas',
+          type: 'image/png'
+        });
+      }
+    }
+
+    // 5. Obtener temporada activa
     let temporadaActiva = null;
     try {
       const temporadasQuery = query(
         collection(db, 'temporadas'),
         where('estado_temporada', '==', 'Activa')
       );
-
       const temporadasSnapshot = await getDocs(temporadasQuery);
       if (!temporadasSnapshot.empty) {
         const tempDoc = temporadasSnapshot.docs[0];
@@ -234,18 +430,19 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
           label: tempDoc.data().temporada || 'Temporada Activa',
           value: tempDoc.id
         };
+        console.log("TEMPORADA", temporadaActiva);
       }
     } catch (dbError) {
       console.error('Error al obtener temporada activa:', dbError);
     }
 
-    // 4. Crear objeto de registro
+    // 6. Crear objeto de registro
     const datosRegistro = {
       nombre: formData.nombre,
       apellido_p: formData.apellido_p,
       apellido_m: formData.apellido_m,
       sexo: formData.sexo,
-      categoria: formData.categoria,
+      categoria: formData.tipo_inscripcion === 'porrista' ? '' : formData.categoria,
       direccion: formData.direccion,
       telefono: formData.telefono,
       fecha_nacimiento: formData.fecha_nacimiento.toISOString().split('T')[0],
@@ -259,62 +456,36 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
       tipo_inscripcion: formData.tipo_inscripcion,
       foto: fotoJugadorURL,
       documentos: {
-        ine_tutor: null,
-        curp: null,
-        acta_nacimiento: null,
-        comprobante_domicilio: null,
-        firma: null,
-        firma_jugador: null
+        ...documentosSubidos,
+        firma: firmaURL
       },
       activo: 'activo',
       numero_mfl: formData.numero_mfl,
       fecha_registro: new Date(),
       uid: uid,
-      estatus: "Incompleto",
-      ...(temporadaActiva && { temporada: temporadaActiva }),
+      estatus: "Completo",
+      ...(temporadaActiva && { temporadaId: temporadaActiva }),
       ...(formData.tipo_inscripcion === 'transferencia' && {
         transferencia: formData.transferencia
       })
     };
 
-    // 5. Guardar en Firestore
+    // 7. Guardar en Firestore
     const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
     const docRef = await addDoc(collection(db, coleccion), datosRegistro);
 
-    // 6. Procesar pagos
+    // 8. Procesar pagos
     await processPayments(docRef.id, formData, temporadaActiva);
 
-    // 7. Éxito
     Alert.alert(
       'Registro Exitoso',
-      'Jugador registrado correctamente. Se ha creado el expediente y los pagos correspondientes.',
+      'Jugador registrado correctamente',
       [{ text: 'OK', onPress: () => navigation.navigate('MainTabs') }]
     );
 
   } catch (error) {
-    console.error('Error completo en handleSubmit:', {
-      error: error.message,
-      stack: error.stack,
-      timestamp: new Date().toISOString(),
-      user: auth.currentUser?.uid,
-      formData: {
-        ...formData,
-        foto_jugador: formData.foto_jugador ? 'EXISTE' : 'NULL',
-        firma: formData.firma.length > 0 ? 'EXISTE' : 'NULL'
-      }
-    });
-
-    let errorMessage = error.message || 'Ocurrió un error al completar el registro.';
-
-    if (error.message.includes('network') || error.message.includes('Network')) {
-      errorMessage = 'Problema de conexión. Verifica tu internet e intenta nuevamente.';
-    } else if (error.message.includes('quota')) {
-      errorMessage = 'Límite de almacenamiento excedido. Contacta al administrador.';
-    } else if (error.message.includes('permission')) {
-      errorMessage = 'No tienes permisos para realizar esta acción.';
-    }
-
-    Alert.alert('Error', errorMessage);
+    console.error('Error completo en handleSubmit:', error);
+    Alert.alert('Error', error.message || 'Ocurrió un error al completar el registro');
   } finally {
     setLoading(false);
     setCurrentUpload(null);
@@ -322,28 +493,23 @@ const uploadFile1 = async (fileUri, fileName = 'image.jpg', folder = 'fotos') =>
 };
 
 
-// Funciones auxiliares:
-
-// Verificar conexión a internet
-
-
-// Función con reintentos automáticos
-const withRetry = async (fn, maxRetries = 3, delayMs = 1000) => {
-  let lastError;
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-      if (i < maxRetries - 1) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+  // Función con reintentos automáticos
+  const withRetry = async (fn, maxRetries = 3, delayMs = 1000) => {
+    let lastError;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        if (i < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
       }
     }
-  }
-  throw lastError;
-};
-
-// Procesar pagos (separado para mejor organización)
+    throw lastError;
+  };
+  
+  // Procesar pagos (separado para mejor organización)
 const processPayments = async (playerId, formData, temporadaActiva) => {
   try {
     const costosCollection = formData.tipo_inscripcion === 'porrista' ? 'costos-porrista' : 'costos-jugador';
@@ -498,7 +664,7 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
     throw new Error('Se completó el registro pero hubo un problema con los pagos. Contacta al administrador.');
   }
 };
-
+  
   const renderForm = () => {
     switch (steps[currentStep]) {
       case 'GeneroForm':
@@ -506,7 +672,7 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
       case 'TipoInscripcionForm':
         return <TipoInscripcionForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} navigation={navigation} />;
       case 'DatosPersonalesForm':
-        return <DatosPersonalesForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} db={db} />;
+        return <DatosPersonalesForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
       case 'DatosContactoForm':
         return <DatosContactoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
       case 'DatosEscolaresMedicosForm':
@@ -514,13 +680,15 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
       case 'TransferenciaForm':
         return <TransferenciaForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
       case 'FirmaFotoForm':
-        return <FirmaFotoForm 
+        return <FirmaFotoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} signatureRef={signatureRef} />;
+      case 'DocumentacionForm':
+        return <DocumentacionForm 
           formData={formData} 
           setFormData={setFormData} 
-          errors={errors} 
-          onNext={handleSubmit} 
-          acceptedRegulation={acceptedRegulation}
-          setAcceptedRegulation={setAcceptedRegulation}
+          onSubmit={handleSubmit} 
+          uploadProgress={uploadProgress}
+          currentUpload={currentUpload}
+          handleSelectFile={handleSelectFile}
         />;
       default:
         return null;
@@ -529,24 +697,31 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Animated.View style={{ opacity: fadeAnim, flex: 1 }}>
-        {renderForm()}
-      </Animated.View>
-      {currentStep > 0 && currentStep !== steps.length - 1 && (
-        <TouchableOpacity style={styles.backButton} onPress={handlePreviousStep}>
-          <Text style={styles.backButtonText}>Atrás</Text>
-        </TouchableOpacity>
-      )}
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#0000ff" />
-          {currentUpload && (
-            <Text style={styles.uploadingText}>
-              Subiendo {currentUpload}... {Math.round(uploadProgress[currentUpload] || 0)}%
-            </Text>
+      <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{ flex: 1 }}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+            >
+
+          <Animated.View style={{ opacity: fadeAnim, flex: 1 }}>
+            {renderForm()}
+          </Animated.View>
+          {currentStep > 0 && currentStep !== steps.length - 1 && (
+            <TouchableOpacity style={styles.backButton} onPress={handlePreviousStep}>
+              <Text style={styles.backButtonText}>Atrás</Text>
+            </TouchableOpacity>
           )}
-        </View>
-      )}
+          {loading && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color="#0000ff" />
+              {currentUpload && (
+                <Text style={styles.uploadingText}>
+                  Subiendo {currentUpload}... {Math.round(uploadProgress[currentUpload] || 0)}%
+                </Text>
+              )}
+            </View>
+          )}
+      </KeyboardAvoidingView> 
     </SafeAreaView>
   );
 };
@@ -702,173 +877,172 @@ const TipoInscripcionForm = ({ formData, setFormData, errors, onNext, navigation
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <View style={styles.formContainer}>
-        <Text style={styles.title}>Tipo de Inscripción</Text>
-        <Picker
-          selectedValue={formData.tipo_inscripcion}
-          onValueChange={handleTipoInscripcionChange}
-          style={styles.picker}
-        >
-          {tipoInscripcionOptions.map((option, index) => (
-            <Picker.Item key={index} label={option.label} value={option.value} />
-          ))}
-        </Picker>
-        {errors.tipo_inscripcion && <Text style={styles.errorText}>{errors.tipo_inscripcion}</Text>}
+    <View style={styles.formContainer}>
+      <Text style={styles.title}>Tipo de Inscripción</Text>
+      <Picker
+        selectedValue={formData.tipo_inscripcion}
+        onValueChange={handleTipoInscripcionChange}
+        style={styles.picker}
+      >
+        {tipoInscripcionOptions.map((option, index) => (
+          <Picker.Item key={index} label={option.label} value={option.value} />
+        ))}
+      </Picker>
+      {errors.tipo_inscripcion && <Text style={styles.errorText}>{errors.tipo_inscripcion}</Text>}
 
-        {formData.tipo_inscripcion === 'reinscripcion' && (
-          <View style={styles.reinscripcionContainer}>
-            <Text style={styles.subtitle}>Buscar jugador/porrista para reinscribir</Text>
-            
-            <TextInput
-              style={styles.input}
-              placeholder="Ingresa CURP (18 caracteres) o MFL (6 dígitos)"
-              value={searchTerm}
-              onChangeText={setSearchTerm}
-              maxLength={18}
-              autoCapitalize="characters"
-            />
-            
-            {searchError && <Text style={styles.errorText}>{searchError}</Text>}
-            
-            <TouchableOpacity 
-              style={styles.button} 
-              onPress={searchPlayer}
-              disabled={loadingSearch}
-            >
-              {loadingSearch ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Buscar</Text>
-              )}
-            </TouchableOpacity>
-
-            {foundPlayer && (
-              <View style={styles.playerInfoContainer}>
-                <Text style={styles.playerInfoTitle}>Jugador encontrado:</Text>
-                
-                {foundPlayer.foto && (
-                  <Image 
-                    source={{ uri: foundPlayer.foto }} 
-                    style={styles.playerImage}
-                  />
-                )}
-                
-                <Text style={styles.playerInfoText}>
-                  Nombre: {foundPlayer.nombre} {foundPlayer.apellido_p} {foundPlayer.apellido_m}
-                </Text>
-                <Text style={styles.playerInfoText}>CURP: {foundPlayer.curp}</Text>
-                <Text style={styles.playerInfoText}>MFL: {foundPlayer.numero_mfl || 'N/A'}</Text>
-                <Text style={styles.playerInfoText}>Estado actual: {foundPlayer.activo}</Text>
-                
-                <TouchableOpacity 
-                  style={[styles.button, styles.reinscribirButton]}
-                  onPress={reinscribirPlayer}
-                  disabled={reinscribiendo}
-                >
-                  {reinscribiendo ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.buttonText}>Reinscribir</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        )}
-
-        {formData.tipo_inscripcion !== 'reinscripcion' && (
+      {formData.tipo_inscripcion === 'reinscripcion' && (
+        <View style={styles.reinscripcionContainer}>
+          <Text style={styles.subtitle}>Buscar jugador/porrista para reinscribir</Text>
+          
+          <TextInput
+            style={styles.input}
+            placeholder="Ingresa CURP (18 caracteres) o MFL (6 dígitos)"
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+            maxLength={18}
+            autoCapitalize="characters"
+          />
+          
+          {searchError && <Text style={styles.errorText}>{searchError}</Text>}
+          
           <TouchableOpacity 
             style={styles.button} 
-            onPress={onNext}
+            onPress={searchPlayer}
+            disabled={loadingSearch}
           >
-            <Text style={styles.buttonText}>Continuar</Text>
+            {loadingSearch ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Buscar</Text>
+            )}
           </TouchableOpacity>
-        )}
-      </View>
-    </TouchableWithoutFeedback>
+
+          {foundPlayer && (
+            <View style={styles.playerInfoContainer}>
+              <Text style={styles.playerInfoTitle}>Jugador encontrado:</Text>
+              
+              {foundPlayer.foto && (
+                <Image 
+                  source={{ uri: foundPlayer.foto }} 
+                  style={styles.playerImage}
+                />
+              )}
+              
+              <Text style={styles.playerInfoText}>
+                Nombre: {foundPlayer.nombre} {foundPlayer.apellido_p} {foundPlayer.apellido_m}
+              </Text>
+              <Text style={styles.playerInfoText}>CURP: {foundPlayer.curp}</Text>
+              <Text style={styles.playerInfoText}>MFL: {foundPlayer.numero_mfl || 'N/A'}</Text>
+              <Text style={styles.playerInfoText}>Estado actual: {foundPlayer.activo}</Text>
+              
+              <TouchableOpacity 
+                style={[styles.button, styles.reinscribirButton]}
+                onPress={reinscribirPlayer}
+                disabled={reinscribiendo}
+              >
+                {reinscribiendo ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>Reinscribir</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
+
+      {formData.tipo_inscripcion !== 'reinscripcion' && (
+        <TouchableOpacity 
+          style={styles.button} 
+          onPress={onNext}
+        >
+          <Text style={styles.buttonText}>Continuar</Text>
+        </TouchableOpacity>
+      )}
+    </View>
   );
 };
 
-// Componente DatosPersonalesForm modificado para consultar categorías desde Firestore
-const DatosPersonalesForm = ({ formData, setFormData, errors, onNext, db }) => {
+
+// Componente DatosPersonalesForm
+const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
   const [dateInputValue, setDateInputValue] = useState(
     formData.fecha_nacimiento ? new Date(formData.fecha_nacimiento).toISOString().split('T')[0] : ''
   );
-  const [loadingCategoria, setLoadingCategoria] = useState(false);
-  const [temporadaInfo, setTemporadaInfo] = useState(null);
+  const [dateError, setDateError] = useState('');
+  const [categoriaError, setCategoriaError] = useState('');
 
-  // Función para determinar la categoría basada en la fecha de nacimiento y sexo
   const determinarCategoria = async (fechaNacimiento, sexo) => {
     if (!fechaNacimiento || !sexo) return;
-    
-    setLoadingCategoria(true);
+
     try {
       const fechaNac = new Date(fechaNacimiento);
-      
-      // Consultar todas las categorías para el sexo especificado
       const categoriasRef = collection(db, 'categorias');
       const q = query(categoriasRef, where('sexo', '==', sexo));
       const querySnapshot = await getDocs(q);
-      
+
       if (querySnapshot.empty) {
         console.log('No se encontraron categorías para el sexo especificado');
-        setFormData(prev => ({ 
-          ...prev, 
-          categoria: 'NC',
-          temporadaId: null
+        setFormData(prev => ({
+          ...prev,
+          categoria: 'NO ENCONTRADA',
+          temporadaId: null,
         }));
-        setTemporadaInfo(null);
         return;
       }
-      
-      let categoriaAsignada = 'NC'; // Por defecto si no encuentra categoría
+
+      let categoriaAsignada = 'NO ENCONTRADA';
       let tempTemporadaInfo = null;
-      
-      querySnapshot.forEach((doc) => {
+
+      for (const doc of querySnapshot.docs) {
         const categoriaData = doc.data();
-        
-        // Convertir las fechas de string a objetos Date
         const fechaInicio = new Date(categoriaData.fecha_inicio);
         const fechaFin = new Date(categoriaData.fecha_fin);
-        
-        // Verificar si la fecha de nacimiento está dentro del rango
+
         if (fechaNac >= fechaInicio && fechaNac <= fechaFin) {
           categoriaAsignada = categoriaData.nombre_categoria;
           tempTemporadaInfo = {
             nombre: categoriaData.temporada,
             id: categoriaData.temporadaId
           };
+          break;
         }
-      });
-      
-      setFormData(prev => ({ 
-        ...prev, 
+      }
+
+      setFormData(prev => ({
+        ...prev,
         categoria: categoriaAsignada,
         temporadaId: tempTemporadaInfo?.id || null
       }));
-      
-      setTemporadaInfo(tempTemporadaInfo);
+
     } catch (error) {
       console.error('Error al determinar categoría:', error);
-      setFormData(prev => ({ 
-        ...prev, 
-        categoria: 'NC',
+      setFormData(prev => ({
+        ...prev,
+        categoria: 'NO ENCONTRADA',
         temporadaId: null
       }));
-      setTemporadaInfo(null);
-    } finally {
-      setLoadingCategoria(false);
     }
   };
+useEffect(() => {
+  // Limpiar error de categoría cuando se actualice a un valor válido
+  if (formData.categoria && formData.categoria !== 'NO ENCONTRADA') {
+    setCategoriaError('');
+  }
+}, [formData.categoria]);
 
   useEffect(() => {
+    if (formData.tipo_inscripcion === 'porrista') {
+      setFormData(prev => ({ ...prev, categoria: '' }));
+      return;
+    }
+
     if (formData.fecha_nacimiento && formData.sexo) {
       determinarCategoria(formData.fecha_nacimiento, formData.sexo);
     }
-  }, [formData.fecha_nacimiento, formData.sexo]);
+  }, [formData.fecha_nacimiento, formData.sexo, formData.tipo_inscripcion]);
 
   const onChangeMobile = (event, selectedDate) => {
     setShowPicker(false);
@@ -884,6 +1058,19 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext, db }) => {
     setDate(validDate);
     setDateInputValue(validDate.toISOString().split('T')[0]);
     setFormData({ ...formData, fecha_nacimiento: validDate });
+    
+    // Validar si la fecha es hoy
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const selectedDate = new Date(validDate);
+    selectedDate.setHours(0, 0, 0, 0);
+    
+    if (selectedDate.getTime() === today.getTime()) {
+      setDateError('La fecha de nacimiento no puede ser hoy');
+    } else {
+      setDateError('');
+    }
+    
   };
 
   const handleWebDateChange = (e) => {
@@ -905,250 +1092,262 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext, db }) => {
     return new Date(dateObj).toLocaleDateString('es-MX', options);
   };
 
-  // Función para validar formato de CURP
-  const validateCurp = (curp) => {
-    if (!curp) return true; // No es requerido en esta validación
-    const regex = /^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/;
-    return regex.test(curp.toUpperCase());
+  const handleNext = () => {
+    // Validar categoría solo si no es porrista
+  if (formData.tipo_inscripcion !== 'porrista') {
+    if (!formData.categoria || formData.categoria === 'NO ENCONTRADA') {
+      setCategoriaError('No se pudo asignar una categoría válida. Verifica la fecha de nacimiento.');
+      return;
+    }
+    // No necesitamos else aquí, el useEffect se encargará de limpiar el error
+  }
+    
+    // Validar fecha
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const selectedDate = new Date(formData.fecha_nacimiento);
+    selectedDate.setHours(0, 0, 0, 0);
+    
+    if (selectedDate.getTime() === today.getTime()) {
+      setDateError('La fecha de nacimiento no puede ser hoy');
+      return;
+    }
+    
+    // Si todo está bien, continuar
+    setDateError('');
+    setCategoriaError('');
+    onNext();
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.formContainer}
-      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
+    <ScrollView 
+      style={styles.mainContent}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView contentContainerStyle={styles.scrollContainer}>
-          <View style={styles.formContainer}>
-            <Text style={styles.title}>Datos Personales- Jugador(a)</Text>
-            
-            <TextInput
-              style={styles.input}
-              placeholder="Nombre del jugador(a)"
-              value={formData.nombre}
-              onChangeText={(text) => setFormData({ ...formData, nombre: text })}
-            />
-            {errors.nombre && <Text style={styles.errorText}>{errors.nombre}</Text>}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+      >  
+        <View style={styles.formContainer}>
+          <Text style={styles.title}>Datos Personales- Jugador(a)</Text>
+          
+          <TextInput
+            style={styles.input}
+            placeholder="Nombre del jugador(a)"
+            value={formData.nombre}
+            onChangeText={(text) => setFormData({ ...formData, nombre: text })}
+          />
+          {errors.nombre && <Text style={styles.errorText}>{errors.nombre}</Text>}
 
-            <TextInput
-              style={styles.input}
-              placeholder="Apellido Paterno"
-              value={formData.apellido_p}
-              onChangeText={(text) => setFormData({ ...formData, apellido_p: text })}
-            />
-            {errors.apellido_p && <Text style={styles.errorText}>{errors.apellido_p}</Text>}
+          <TextInput
+            style={styles.input}
+            placeholder="Apellido Paterno"
+            value={formData.apellido_p}
+            onChangeText={(text) => setFormData({ ...formData, apellido_p: text })}
+          />
+          {errors.apellido_p && <Text style={styles.errorText}>{errors.apellido_p}</Text>}
 
-            <TextInput
-              style={styles.input}
-              placeholder="Apellido Materno"
-              value={formData.apellido_m}
-              onChangeText={(text) => setFormData({ ...formData, apellido_m: text })}
-            />
-            {errors.apellido_m && <Text style={styles.errorText}>{errors.apellido_m}</Text>}
+          <TextInput
+            style={styles.input}
+            placeholder="Apellido Materno"
+            value={formData.apellido_m}
+            onChangeText={(text) => setFormData({ ...formData, apellido_m: text })}
+          />
+          {errors.apellido_m && <Text style={styles.errorText}>{errors.apellido_m}</Text>}
 
-            {/* Nuevo campo CURP */}
-            <TextInput
-              style={styles.input}
-              placeholder="CURP (18 caracteres)"
-              value={formData.curp}
-              onChangeText={(text) => {
-                setFormData({ ...formData, curp: text.toUpperCase() });
-                // Validación en tiempo real
-                if (text && !validateCurp(text)) {
-                  setFormData(prev => ({ 
-                    ...prev, 
-                    curpError: 'Formato de CURP inválido' 
-                  }));
-                } else {
-                  setFormData(prev => ({ 
-                    ...prev, 
-                    curpError: null 
-                  }));
-                }
-              }}
-              maxLength={18}
-              autoCapitalize="characters"
-            />
-            {errors.curp && <Text style={styles.errorText}>{errors.curp}</Text>}
-            {formData.curpError && <Text style={styles.errorText}>{formData.curpError}</Text>}
-
-            <Text style={styles.label}>Fecha de Nacimiento:</Text>
-            
-            {Platform.OS !== 'web' ? (
-              <>
-                <Button 
-                  title={date ? formatDate(date) : "Seleccionar fecha"} 
-                  onPress={() => setShowPicker(true)} 
+          <Text style={styles.label}>Fecha de Nacimiento:</Text>
+          
+          {Platform.OS !== 'web' ? (
+            <>
+              <Button 
+                title="Seleccionar fecha"
+                onPress={() => setShowPicker(true)} 
+              />
+              {showPicker && (
+                <DateTimePicker
+                  value={date || new Date()}
+                  mode="date"
+                  display="default"
+                  onChange={onChangeMobile}
+                  maximumDate={new Date()}
                 />
-                {showPicker && (
-                  <DateTimePicker
-                    value={date || new Date()}
-                    mode="date"
-                    display="default"
-                    onChange={onChangeMobile}
-                    maximumDate={new Date()}
-                  />
-                )}
-              </>
-            ) : (
-              <>
-                <input
-                  type="date"
-                  value={dateInputValue}
-                  onChange={handleWebDateChange}
-                  style={styles.webInput}
-                  max={new Date().toISOString().split('T')[0]}
-                />
-                {errors.fecha_nacimiento && (
-                  <Text style={styles.errorText}>{errors.fecha_nacimiento}</Text>
-                )}
-              </>
-            )}
-
-            <Text style={styles.selectedDate}>
-              Fecha seleccionada: {formatDate(date)}
-            </Text>
-
-            {loadingCategoria ? (
-              <View style={styles.categoriaContainer}>
-                <ActivityIndicator size="small" color="#0000ff" />
-                <Text style={styles.categoriaText}>Determinando categoría...</Text>
-              </View>
-            ) : formData.categoria ? (
-              <View style={styles.categoriaContainer}>
-                <Text style={styles.categoriaText}>
-                  Categoría asignada: <Text style={styles.categoriaValue}>{formData.categoria}</Text>
-                </Text>
+              )}
+            </>
+          ) : (
+            <>
+              <input
+                type="date"
                 
-                {temporadaInfo && (
-                  <Text style={styles.temporadaText}>
-                    Temporada: <Text style={styles.temporadaValue}>{temporadaInfo.nombre}</Text>
+                onChange={handleWebDateChange}
+                style={styles.webInput}
+                max={new Date().toISOString().split('T')[0]}
+              />
+              {errors.fecha_nacimiento && (
+                <Text style={styles.errorText}>{errors.fecha_nacimiento}</Text>
+              )}
+            </>
+          )}
+
+           <Text style={styles.selectedDate}>
+            Fecha seleccionada: {formatDate(date)}
+          </Text>
+          
+          {/* Mostrar error de fecha solo para porristas */}
+          {formData.tipo_inscripcion === 'porrista' && dateError && (
+            <Text style={styles.errorText}>{dateError}</Text>
+          )}
+
+          {/* Contenedor de categoría y errores asociados */}
+          {formData.tipo_inscripcion !== 'porrista' && (
+            <View style={styles.categoriaContainer}>
+              {/* Información de categoría */}
+              {formData.categoria && (
+                <>
+                  <Text style={styles.categoriaText}>
+                    Categoría asignada: 
+                    <Text style={styles.categoriaValue}>{formData.categoria}</Text>
                   </Text>
-                )}
-                
-                {formData.categoria === 'NC' && (
-                  <Text style={styles.categoriaNota}>*El jugador está fuera de los rangos de edad permitidos</Text>
-                )}
-              </View>
-            ) : null}
+                  {formData.categoria === 'NO ENCONTRADA' && (
+                    <Text style={styles.categoriaNota}>
+                      *El jugador está fuera de los rangos de edad, VERIFICA SU FECHA DE NACIMIENTO
+                    </Text>
+                  )}
+                </>
+              )}
+              
+              {/* Errores agrupados */}
+              {dateError && <Text style={styles.errorText}>{dateError}</Text>}
+              {categoriaError && <Text style={styles.errorText}>{categoriaError}</Text>}
+            </View>
+          )}
 
-            <TextInput
-              style={styles.input}
-              placeholder="Lugar de Nacimiento"
-              value={formData.lugar_nacimiento}
-              onChangeText={(text) => setFormData({ ...formData, lugar_nacimiento: text })}
-            />
-            {errors.lugar_nacimiento && <Text style={styles.errorText}>{errors.lugar_nacimiento}</Text>}
+          <TextInput
+            style={styles.input}
+            placeholder="Lugar de Nacimiento"
+            value={formData.lugar_nacimiento}
+            onChangeText={(text) => setFormData({ ...formData, lugar_nacimiento: text })}
+          />
+          {errors.lugar_nacimiento && <Text style={styles.errorText}>{errors.lugar_nacimiento}</Text>}
 
-            <TouchableOpacity style={styles.button} onPress={onNext}>
-              <Text style={styles.buttonText}>Continuar</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+          <TextInput
+            style={styles.input}
+            placeholder="CURP (EN MAYUSCULAS)"
+            value={formData.curp}
+            onChangeText={(text) => setFormData({ ...formData, curp: text.toUpperCase() })}
+            maxLength={18}
+          />
+          {errors.curp && <Text style={styles.errorText}>{errors.curp}</Text>}
+
+          <TouchableOpacity 
+            onPress={() => Linking.openURL('https://www.gob.mx/curp/')} 
+            style={styles.linkContainer}
+          >
+            <Text style={styles.linkText}>¿No sabes tu CURP? Consúltala aquí</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.button} 
+            onPress={handleNext}
+            disabled={!!dateError || (formData.tipo_inscripcion !== 'porrista' && !!categoriaError)}
+          >
+            <Text style={styles.buttonText}>Continuar</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView> 
+    </ScrollView>
   );
 };
 
 // Componente DatosContactoForm
 const DatosContactoForm = ({ formData, setFormData, errors, onNext }) => {
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.formContainer}
-      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.formContainer}>
-          <Text style={styles.title}>Datos de Contacto</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Dirección"
-            value={formData.direccion}
-            onChangeText={(text) => setFormData({ ...formData, direccion: text })}
-          />
-          {errors.direccion && <Text style={styles.errorText}>{errors.direccion}</Text>}
-          <TextInput
-            style={styles.input}
-            placeholder="Teléfono"
-            value={formData.telefono}
-            onChangeText={(text) => setFormData({ ...formData, telefono: text })}
-            keyboardType="phone-pad"
-          />
-          {errors.telefono && <Text style={styles.errorText}>{errors.telefono}</Text>}
-          <TouchableOpacity style={styles.button} onPress={onNext}>
-            <Text style={styles.buttonText}>Continuar</Text>
-          </TouchableOpacity>
-        </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+    <ScrollView 
+            style={styles.mainContent}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+
+      <View style={styles.formContainer}>
+        <Text style={styles.title}>Datos de Contacto</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Dirección"
+          value={formData.direccion}
+          onChangeText={(text) => setFormData({ ...formData, direccion: text })}
+        />
+        {errors.direccion && <Text style={styles.errorText}>{errors.direccion}</Text>}
+        <TextInput
+          style={styles.input}
+          placeholder="Teléfono"
+          value={formData.telefono}
+          onChangeText={(text) => setFormData({ ...formData, telefono: text })}
+          keyboardType="phone-pad"
+        />
+        {errors.telefono && <Text style={styles.errorText}>{errors.telefono}</Text>}
+        <TouchableOpacity style={styles.button} onPress={onNext}>
+          <Text style={styles.buttonText}>Continuar</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
   );
 };
 
 // Componente DatosEscolaresMedicosForm
 const DatosEscolaresMedicosForm = ({ formData, setFormData, errors, onNext }) => {
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.formContainer}
-      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView contentContainerStyle={styles.scrollContainer}>
-          <View style={styles.formContainer}>
-            <Text style={styles.title}>Datos Escolares y Médicos</Text>
-            <Picker
-              selectedValue={formData.grado_escolar}
-              onValueChange={(itemValue) => setFormData({ ...formData, grado_escolar: itemValue })}
-              style={styles.picker}
-            >
-              <Picker.Item label="Selecciona el grado escolar" value="" />
-              <Picker.Item label="Primaria" value="primaria" />
-              <Picker.Item label="Secundaria" value="secundaria" />
-              <Picker.Item label="Preparatoria" value="preparatoria" />
-            </Picker>
-            {errors.grado_escolar && <Text style={styles.errorText}>{errors.grado_escolar}</Text>}
-            <TextInput
-              style={styles.input}
-              placeholder="Nombre de la Escuela"
-              value={formData.nombre_escuela}
-              onChangeText={(text) => setFormData({ ...formData, nombre_escuela: text })}
-            />
-            {errors.nombre_escuela && <Text style={styles.errorText}>{errors.nombre_escuela}</Text>}
-            <TextInput
-              style={styles.input}
-              placeholder="Alergias"
-              value={formData.alergias}
-              onChangeText={(text) => setFormData({ ...formData, alergias: text })}
-            />
-            {errors.alergias && <Text style={styles.errorText}>{errors.alergias}</Text>}
-            <TextInput
-              style={styles.input}
-              placeholder="Padecimientos"
-              value={formData.padecimientos}
-              onChangeText={(text) => setFormData({ ...formData, padecimientos: text })}
-            />
-            {errors.padecimientos && <Text style={styles.errorText}>{errors.padecimientos}</Text>}
-            <TextInput
-              style={styles.input}
-              placeholder="Peso (kg)"
-              value={formData.peso}
-              onChangeText={(text) => setFormData({ ...formData, peso: text })}
-              keyboardType="numeric"
-            />
-            {errors.peso && <Text style={styles.errorText}>{errors.peso}</Text>}
-            <TouchableOpacity style={styles.button} onPress={onNext}>
-              <Text style={styles.buttonText}>Continuar</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+    
+    <View style={styles.formContainer}>
+      <Text style={styles.title}>Datos Escolares y Médicos</Text>
+      <Picker
+        selectedValue={formData.grado_escolar}
+        onValueChange={(itemValue) => setFormData({ ...formData, grado_escolar: itemValue })}
+        style={styles.picker}
+      >
+        <Picker.Item label="Selecciona el grado escolar" value="" />
+        <Picker.Item label="Primaria" value="primaria" />
+        <Picker.Item label="Secundaria" value="secundaria" />
+        <Picker.Item label="Preparatoria" value="preparatoria" />
+      </Picker>
+      {errors.grado_escolar && <Text style={styles.errorText}>{errors.grado_escolar}</Text>}
+      <TextInput
+        style={styles.input}
+        placeholder="Nombre de la Escuela"
+        value={formData.nombre_escuela}
+        onChangeText={(text) => setFormData({ ...formData, nombre_escuela: text })}
+      />
+      {errors.nombre_escuela && <Text style={styles.errorText}>{errors.nombre_escuela}</Text>}
+      <TextInput
+        style={styles.input}
+        placeholder="Alergias"
+        value={formData.alergias}
+        onChangeText={(text) => setFormData({ ...formData, alergias: text })}
+      />
+      {errors.alergias && <Text style={styles.errorText}>{errors.alergias}</Text>}
+      <TextInput
+        style={styles.input}
+        placeholder="Padecimientos"
+        value={formData.padecimientos}
+        onChangeText={(text) => setFormData({ ...formData, padecimientos: text })}
+      />
+      {errors.padecimientos && <Text style={styles.errorText}>{errors.padecimientos}</Text>}
+      <TextInput
+        style={styles.input}
+        placeholder="Peso (kg)"
+        value={formData.peso}
+        onChangeText={(text) => setFormData({ ...formData, peso: text })}
+        keyboardType="numeric"
+      />
+      {errors.peso && <Text style={styles.errorText}>{errors.peso}</Text>}
+      <TouchableOpacity style={styles.button} onPress={onNext}>
+        <Text style={styles.buttonText}>Continuar</Text>
+      </TouchableOpacity>
+    </View>
   );
 };
 
-// Componente TransferenciaForm 4444
+// Componente TransferenciaForm
 const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
   const handleChange = (field, value) => {
     setFormData(prev => ({
@@ -1161,53 +1360,47 @@ const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.formContainer}
-      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.formContainer}>
-          <Text style={styles.title}>Datos de Transferencia</Text>
-          
-          <TextInput
-            style={styles.input}
-            placeholder="Club de Origen"
-            value={formData.transferencia.club_anterior}
-            onChangeText={(text) => handleChange('club_anterior', text)}
-          />
-          
-          <TextInput
-            style={styles.input}
-            placeholder="Temporadas Jugadas"
-            value={formData.transferencia.temporadas_jugadas}
-            onChangeText={(text) => handleChange('temporadas_jugadas', text)}
-            keyboardType="numeric"
-          />
-          
-          <Picker
-            selectedValue={formData.transferencia.motivo_transferencia}
-            onValueChange={(itemValue) => handleChange('motivo_transferencia', itemValue)}
-            style={styles.picker}
-          >
-            <Picker.Item label="Selecciona un motivo de transferencia" value="" />
-            <Picker.Item label="Préstamo" value="prestamo" />
-            <Picker.Item label="Cambio de domicilio" value="cambio_domicilio" />
-            <Picker.Item label="Descanso" value="descanso" />
-            <Picker.Item label="Transferencia definitiva" value="transferencia_definitiva" />
-          </Picker>
-          
-          <TouchableOpacity style={styles.button} onPress={onNext}>
-            <Text style={styles.buttonText}>Continuar</Text>
-          </TouchableOpacity>
-        </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+    <View style={styles.formContainer}>
+      <Text style={styles.title}>Datos de Transferencia</Text>
+      
+      <TextInput
+        style={styles.input}
+        placeholder="Club de Origen"
+        value={formData.transferencia.club_anterior}
+        onChangeText={(text) => handleChange('club_anterior', text)}
+      />
+      
+      <TextInput
+        style={styles.input}
+        placeholder="Temporadas Jugadas"
+        value={formData.transferencia.temporadas_jugadas}
+        onChangeText={(text) => handleChange('temporadas_jugadas', text)}
+      />
+      
+      <Picker
+        selectedValue={formData.transferencia.motivo_transferencia}
+        onValueChange={(itemValue) => handleChange('motivo_transferencia', itemValue)}
+        style={styles.picker}
+      >
+        <Picker.Item label="Selecciona un motivo de transferencia" value="" />
+        <Picker.Item label="Préstamo" value="prestamo" />
+        <Picker.Item label="Cambio de domicilio" value="cambio_domicilio" />
+        <Picker.Item label="Descanso" value="descanso" />
+        <Picker.Item label="Transferencia definitiva" value="transferencia_definitiva" />
+      </Picker>
+      
+      <TouchableOpacity style={styles.button} onPress={onNext}>
+        <Text style={styles.buttonText}>Continuar</Text>
+      </TouchableOpacity>
+    </View>
   );
 };
 
 // Componente FirmaFotoForm
-const FirmaFotoForm = ({ formData, setFormData, errors, onNext, acceptedRegulation, setAcceptedRegulation }) => {
+const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) => {
+  const [paths, setPaths] = useState([]);
+  const [currentPath, setCurrentPath] = useState([]);
+  const [isDrawing, setIsDrawing] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(null);
   const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
 
@@ -1220,32 +1413,73 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, acceptedRegulati
     })();
   }, []);
 
-  const handleSelectFoto = async () => {
-    if (!hasGalleryPermission) {
-      Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la galería para seleccionar una imagen.');
-      return;
-    }
+  const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: (event, gestureState) => {
+      const { locationX, locationY } = event.nativeEvent;
+      setIsDrawing(true);
+      setCurrentPath([{ x: locationX, y: locationY }]);
+    },
+    onPanResponderMove: (event, gestureState) => {
+      if (!isDrawing) return;
+      const { locationX, locationY } = event.nativeEvent;
+      setCurrentPath((prevPath) => [...prevPath, { x: locationX, y: locationY }]);
+    },
+    onPanResponderRelease: () => {
+      setIsDrawing(false);
+      setPaths((prevPaths) => [...prevPaths, currentPath]);
+      setCurrentPath([]);
+      setFormData(prev => ({ ...prev, firma: [...prev.firma, ...currentPath] }));
+    },
+  });
 
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.3,
-        base64: false,
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const uri = result.assets[0].uri;
-        setFormData((prevData) => ({ ...prevData, foto_jugador: uri }));
-      }
-    } catch (error) {
-      console.error('Error al seleccionar la foto:', error);
-    }
+  const getPathData = (path) => {
+    if (path.length === 0) return '';
+    return path
+      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+      .join(' ');
   };
+
+  const clearCanvas = () => {
+    setPaths([]);
+    setCurrentPath([]);
+    setFormData(prev => ({ ...prev, firma: [] }));
+  };
+
+ const handleSelectFoto = async () => {
+  if (!hasGalleryPermission) {
+    Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la galería para seleccionar una imagen. Cierra la app y ve a ""Configuración> Apps > Club Potros y otorga los permisos');
+    return;
+  }
+
+  try {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.3,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const selectedImage = result.assets[0];
+      setFormData(prev => ({
+        ...prev,
+        foto_jugador: {
+          uri: selectedImage.uri,
+          name: `foto_jugador_${Date.now()}.jpg`,
+          type: selectedImage.mimeType || 'image/jpeg'
+        }
+      }));
+    }
+  } catch (error) {
+    console.error('Error al seleccionar la foto:', error);
+    Alert.alert('Error', 'No se pudo seleccionar la imagen');
+  }
+};
 
   const handleTakePhoto = async () => {
     if (!hasCameraPermission) {
-      Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la cámara para tomar una foto.');
+      Alert.alert('Permisos denegados', 'Necesitas permitir el acceso a la cámara para tomar una foto. Cierra la app y ve a "Configuración> Apps > Club Potros" y otorga los permisos');
       return;
     }
 
@@ -1258,7 +1492,15 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, acceptedRegulati
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const uri = result.assets[0].uri;
-        setFormData((prevData) => ({ ...prevData, foto_jugador: uri }));
+        setFormData((prevData) => ({
+          ...prevData,
+          foto_jugador: {
+            uri: uri,
+            name: `foto_jugador_${Date.now()}.jpg`,
+            type: 'image/jpeg'
+          }
+        }));
+
       }
     } catch (error) {
       console.error('Error al tomar la foto:', error);
@@ -1266,74 +1508,284 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, acceptedRegulati
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.formContainer}
-      keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
-    >
-      <ScrollView 
-        contentContainerStyle={styles.scrollContainer}
-        keyboardShouldPersistTaps="handled"
-      >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.formContainer}>
-            <Text style={styles.title}>Foto del Jugador</Text>
-            
-            {formData.foto_jugador && (
-              <Image
-                source={{ uri: formData.foto_jugador }}
-                style={styles.imagePreview}
+    <ScrollView 
+            style={styles.mainContent}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+      <View style={styles.formContainer}>
+        <Text style={styles.title}>Firma y Foto</Text>
+        
+        <Text style={styles.sectionTitle}>Firma:</Text>
+        <View style={styles.signatureContainer} {...panResponder.panHandlers}>
+          <Svg style={styles.canvas} ref={signatureRef}>
+            {paths.map((path, index) => (
+              <Path
+                key={index}
+                d={getPathData(path)}
+                stroke="black"
+                strokeWidth={3}
+                fill="none"
               />
-            )}
-            <View style={styles.photoButtonsContainer}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={handleTakePhoto}>
-                <Text style={styles.secondaryButtonText}>Tomar Foto</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryButton} onPress={handleSelectFoto}>
-                <Text style={styles.secondaryButtonText}>Seleccionar de Galería</Text>
-              </TouchableOpacity>
-            </View>
-            {errors.foto_jugador && <Text style={styles.errorText}>{errors.foto_jugador}</Text>}
-            
-            {/* Sección de aceptación del reglamento */}
-            <View style={styles.regulationContainer}>
-              <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
-              
-              <TouchableOpacity 
-                onPress={() => Linking.openURL('https://firebasestorage.googleapis.com/v0/b/clubpotros-f28a5.firebasestorage.app/o/logos%2FReglamentoPotros.pdf?alt=media&token=5c87023d-c8b3-42be-b0d9-5b167a7ead0c')} 
-                style={styles.regulationLink}
-              >
-                <Text style={styles.regulationLinkText}>Descargue, lea y firme el reglamento</Text>
-              </TouchableOpacity>
-              
-              <View style={styles.checkboxContainer}>
-                <TouchableOpacity 
-                  style={[styles.checkbox, acceptedRegulation && styles.checkboxChecked]}
-                  onPress={() => setAcceptedRegulation(!acceptedRegulation)}
-                >
-                  {acceptedRegulation && <Text style={styles.checkmark}>✓</Text>}
-                </TouchableOpacity>
-                <Text style={styles.regulationText}>
-                  Confirmo que he leído y acepto el reglamento del equipo
-                </Text>
-              </View>
-              {errors.regulation && <Text style={styles.errorText}>{errors.regulation}</Text>}
-            </View>
+            ))}
+            <Path
+              d={getPathData(currentPath)}
+              stroke="black"
+              strokeWidth={3}
+              fill="none"
+            />
+          </Svg>
+        </View>
+        <TouchableOpacity style={styles.secondaryButton} onPress={clearCanvas}>
+          <Text style={styles.secondaryButtonText}>Limpiar Firma</Text>
+        </TouchableOpacity>
+        {errors.firma && <Text style={styles.errorText}>{errors.firma}</Text>}
+        
+        <Text style={styles.sectionTitle}>Foto del Jugador:</Text>
+        {formData.foto_jugador && (
+          <Image
+            source={{ uri: formData.foto_jugador.uri }} // Accede a la propiedad uri del objeto
+            style={styles.imagePreview}
+          />
+        )}
+        <View style={styles.photoButtonsContainer}>
+          <TouchableOpacity style={styles.secondaryButton} onPress={handleTakePhoto}>
+            <Text style={styles.secondaryButtonText}>Tomar Foto</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={handleSelectFoto}>
+            <Text style={styles.secondaryButtonText}>Seleccionar de Galería</Text>
+          </TouchableOpacity>
+        </View>
+        {errors.foto_jugador && <Text style={styles.errorText}>{errors.foto_jugador}</Text>}
+        
+        <TouchableOpacity style={styles.button} onPress={onNext}>
+          <Text style={styles.buttonText}>Continuar</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+};
 
-            <TouchableOpacity 
-              style={[
-                styles.button,
-                (!acceptedRegulation || !formData.foto_jugador) && styles.disabledButton
-              ]} 
-              onPress={onNext}
-              disabled={!acceptedRegulation || !formData.foto_jugador}
-            >
-              <Text style={styles.buttonText}>Finalizar Registro</Text>
-            </TouchableOpacity>
+// Componente DocumentacionForm
+/*
+const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, currentUpload, handleSelectFile }) => {
+  const [acceptedRegulation, setAcceptedRegulation] = useState(false);
+
+  const renderFileInfo = (field) => {
+    const doc = formData.documentos[field];
+    if (!doc || !doc.uri) return null;
+
+    return (
+      <View style={styles.fileInfoContainer}>
+        <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">
+          {doc.name || 'Archivo seleccionado'}
+        </Text>
+        
+        {currentUpload === field ? (
+          <View style={styles.uploadStatus}>
+            <ActivityIndicator size="small" color="#007AFF" />
+            <Text style={styles.uploadProgressText}>
+              {Math.round(uploadProgress[field] || 0)}%
+            </Text>
           </View>
-        </TouchableWithoutFeedback>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        ) : (
+          <Text style={styles.uploadPendingText}>Listo para subir</Text>
+        )}
+      </View>
+    );
+  };
+
+  return (
+          <ScrollView 
+            style={styles.mainContent}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+
+      <View style={styles.formContainer}>
+        <Text style={styles.title}>Documentación Requerida</Text>
+        
+        {['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'].map((field) => (
+          <View key={field} style={styles.formGroup}>
+            <Text style={styles.label}>
+              {field === 'ine_tutor' && 'INE del Tutor'}
+              {field === 'curp_jugador' && 'CURP del Jugador'}
+              {field === 'acta_nacimiento' && 'Acta de Nacimiento'}
+              {field === 'comprobante_domicilio' && 'Comprobante de Domicilio'}
+            </Text>
+            
+            <TouchableOpacity 
+              style={styles.uploadButton}
+              onPress={() => handleSelectFile(field)}
+              disabled={!!currentUpload}
+            >
+              <Text style={styles.buttonText}>
+                {formData.documentos[field]?.uri ? 'Reemplazar archivo' : 'Seleccionar archivo'}
+              </Text>
+            </TouchableOpacity>
+            
+            {renderFileInfo(field)}
+          </View>
+        ))}
+
+        <View style={styles.regulationContainer}>
+          <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
+          
+          <TouchableOpacity 
+            onPress={() => Linking.openURL('https://clubtoros.com/politicas/reglamentoToros.pdf')} 
+            style={styles.regulationLink}
+          >
+            <Text style={styles.regulationLinkText}>Descargue, lea y firme el reglamento</Text>
+          </TouchableOpacity>
+          
+          <View style={styles.checkboxContainer}>
+            <TouchableOpacity 
+              style={[styles.checkbox, acceptedRegulation && styles.checkboxChecked]}
+              onPress={() => setAcceptedRegulation(!acceptedRegulation)}
+            >
+              {acceptedRegulation && <Text style={styles.checkmark}>✓</Text>}
+            </TouchableOpacity>
+            <Text style={styles.regulationText}>
+              Confirmo que he leído y acepto el reglamento del equipo
+            </Text>
+          </View>
+        </View>
+
+        <TouchableOpacity 
+          style={[
+            styles.submitButton,
+            (!acceptedRegulation || currentUpload) && styles.disabledButton
+          ]} 
+          onPress={onSubmit}
+          disabled={!acceptedRegulation || !!currentUpload}
+        >
+          <Text style={styles.submitButtonText}>
+            {currentUpload ? 'Subiendo archivos...' : 'Finalizar Registro'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+}; 
+*/
+
+const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, currentUpload, handleSelectFile }) => {
+  const [acceptedRegulation, setAcceptedRegulation] = useState(false);
+  const [acceptedDeclaration, setAcceptedDeclaration] = useState(false);
+
+  const renderFileInfo = (field) => {
+    const doc = formData.documentos[field];
+    if (!doc || !doc.uri) return null;
+
+    return (
+      <View style={styles.fileInfoContainer}>
+        <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">
+          {doc.name || 'Archivo seleccionado'}
+        </Text>
+        
+        {currentUpload === field ? (
+          <View style={styles.uploadStatus}>
+            <ActivityIndicator size="small" color="#007AFF" />
+            <Text style={styles.uploadProgressText}>
+              {Math.round(uploadProgress[field] || 0)}%
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.uploadPendingText}>Listo para subir</Text>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <ScrollView 
+      style={styles.mainContent}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.formContainer}>
+        <Text style={styles.title}>Documentación Requerida</Text>
+        
+        {['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'].map((field) => (
+          <View key={field} style={styles.formGroup}>
+            <Text style={styles.label}>
+              {field === 'ine_tutor' && 'INE del Tutor'}
+              {field === 'curp_jugador' && 'CURP del Jugador'}
+              {field === 'acta_nacimiento' && 'Acta de Nacimiento'}
+              {field === 'comprobante_domicilio' && 'Comprobante de Domicilio'}
+            </Text>
+            
+            <TouchableOpacity 
+              style={styles.uploadButton}
+              onPress={() => handleSelectFile(field)}
+              disabled={!!currentUpload}
+            >
+              <Text style={styles.buttonText}>
+                {formData.documentos[field]?.uri ? 'Reemplazar archivo' : 'Seleccionar archivo'}
+              </Text>
+            </TouchableOpacity>
+            
+            {renderFileInfo(field)}
+          </View>
+        ))}
+
+        {/* Sección de declaración de veracidad */}
+        <View style={styles.declarationContainer}>
+          <View style={styles.checkboxContainer}>
+            <TouchableOpacity 
+              style={[styles.checkbox, acceptedDeclaration && styles.checkboxChecked]}
+              onPress={() => setAcceptedDeclaration(!acceptedDeclaration)}
+            >
+              {acceptedDeclaration && <Text style={styles.checkmark}>✓</Text>}
+            </TouchableOpacity>
+            <Text style={styles.declarationText}>
+              Declaro bajo protesta de decir verdad que la información y documentación proporcionada en esta 
+              aplicación y presentada al club toros es verídica, por lo que en caso de existir falsedad en 
+              ella deslindo de toda responsabilidad al Club Toros y tengo pleno conocimiento que se aplicarán 
+              las sanciones administrativas y penas establecidas en los ordenamientos del reglamento 
+              establecido por la liga.
+            </Text>
+          </View>
+        </View>
+
+        {/* Sección de aceptación del reglamento */}
+        <View style={styles.regulationContainer}>
+          <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
+          
+          <TouchableOpacity 
+            onPress={() => Linking.openURL('https://clubtoros.com/politicas/reglamentoToros.pdf')} 
+            style={styles.regulationLink}
+          >
+            <Text style={styles.regulationLinkText}>Descargue, lea y firme el reglamento</Text>
+          </TouchableOpacity>
+          
+          <View style={styles.checkboxContainer}>
+            <TouchableOpacity 
+              style={[styles.checkbox, acceptedRegulation && styles.checkboxChecked]}
+              onPress={() => setAcceptedRegulation(!acceptedRegulation)}
+            >
+              {acceptedRegulation && <Text style={styles.checkmark}>✓</Text>}
+            </TouchableOpacity>
+            <Text style={styles.regulationText}>
+              Confirmo que he leído y acepto el reglamento del equipo
+            </Text>
+          </View>
+        </View>
+
+        <TouchableOpacity 
+          style={[
+            styles.submitButton,
+            (!acceptedRegulation || !acceptedDeclaration || currentUpload) && styles.disabledButton
+          ]} 
+          onPress={onSubmit}
+          disabled={!acceptedRegulation || !acceptedDeclaration || !!currentUpload}
+        >
+          <Text style={styles.submitButtonText}>
+            {currentUpload ? 'Subiendo archivos...' : 'Finalizar Registro'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
   );
 };
 
@@ -1341,7 +1793,7 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, acceptedRegulati
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 35,
+    paddingTop:35,
     backgroundColor: '#f5f5f5',
   },
   scrollContainer: {
@@ -1351,7 +1803,7 @@ const styles = StyleSheet.create({
   formContainer: {
     backgroundColor: '#fff',
     borderRadius: 10,
-    padding: 10,
+    padding: 20,
     marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1401,7 +1853,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   secondaryButton: {
-    backgroundColor: '#e1e1e1',
+    backgroundColor: '#ffbe00',
     padding: 12,
     borderRadius: 5,
     alignItems: 'center',
@@ -1448,7 +1900,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#000',
     marginBottom: 10,
-    backgroundColor: 'white',
   },
   canvas: {
     flex: 1,
@@ -1474,6 +1925,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   selectedDate: {
+    paddingTop:10,
     fontSize: 16,
     marginBottom: 15,
     color: '#555555',
@@ -1663,37 +2115,29 @@ const styles = StyleSheet.create({
     color: '#495057',
     flex: 1,
   },
-  categoriaContainer: {
-    marginTop: 10,
-    marginBottom: 15,
-    padding: 10,
-    backgroundColor: '#f0f8ff',
-    borderRadius: 5,
-    borderLeftWidth: 4,
-    borderLeftColor: '#4682b4',
+    mainContent: {
+    flex: 1,
+    zIndex: 1,
+    paddingLeft: 10,
+    paddingRight: 10,
   },
-  categoriaText: {
-    fontSize: 16,
-    color: '#333',
+  scrollContent: {
+    paddingBottom: 100,
   },
-  categoriaValue: {
-    fontWeight: 'bold',
-    color: '#2e8b57',
+   declarationContainer: {
+    marginTop: 20,
+    marginBottom: 20,
+    padding: 15,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
-  categoriaNota: {
+  declarationText: {
+    flex: 1,
     fontSize: 14,
-    color: '#ff8c00',
-    marginTop: 5,
-    fontStyle: 'italic',
-  },
-  temporadaText: {
-    fontSize: 16,
-    marginTop: 5,
     color: '#333',
-  },
-  temporadaValue: {
-    fontWeight: 'bold',
-    color: '#2c3e50',
+    marginLeft: 10,
   },
 });
 

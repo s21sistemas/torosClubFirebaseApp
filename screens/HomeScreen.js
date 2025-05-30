@@ -1005,7 +1005,7 @@ useEffect(() => {
   }, [formData.fecha_nacimiento, formData.sexo, formData.tipo_inscripcion]);
 
   const onChangeMobile = (event, selectedDate) => {
-
+    setShowPicker(false);
     if (selectedDate) {
       updateDate(selectedDate);
     }

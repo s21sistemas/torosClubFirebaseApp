@@ -4,7 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { TouchableOpacity } from 'react-native';
+import { TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { auth } from './firebaseConfig'; // Asegúrate de que esté bien inicializado
@@ -69,7 +69,11 @@ const App = () => {
   }, []);
 
   if (isLoading) {
-    return null; // Aquí podrías mostrar un SplashScreen
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'white' }}>
+        <ActivityIndicator size="large" color="#ffbe00" />
+      </View>
+    );
   }
 
   return (

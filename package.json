@@ -51,7 +51,8 @@
     "react-native-web": "^0.20.0",
     "react-native-webview": "13.13.5",
     "react-signature-canvas": "^1.1.0-alpha.2",
-    "styled-components": "^6.1.15"
+    "styled-components": "^6.1.15",
+    "expo-updates": "~0.28.13"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",

@@ -4,7 +4,7 @@ export default() => ({
   expo: {
     name: "ClubToros",
     slug: "TorosClub",
-    version: "2.0.2",
+    version: "2.0.3",
     orientation: "portrait",
     icon: "./assets/logoToros.jpg",
     userInterfaceStyle: "light",
@@ -18,6 +18,13 @@ export default() => ({
       resizeMode: "contain",
       backgroundColor: "#ffffff"
     },
+    updates: {
+      url: "https://u.expo.dev/940bd2e2-f080-48f0-9ef7-9723472315f9",
+    },
+    runtimeVersion: {
+      policy: "appVersion",
+    },
+    runtimeVersion: "1.0.0",
     assetBundlePatterns: ["**/*"],
     fonts: [
       {

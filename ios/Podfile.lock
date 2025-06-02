@@ -1677,6 +1677,8 @@ PODS:
     - Yoga
   - react-native-html-to-pdf (0.12.0):
     - React-Core
+  - react-native-netinfo (11.4.1):
+    - React-Core
   - react-native-safe-area-context (5.4.0):
     - DoubleConversion
     - glog
@@ -2513,6 +2515,7 @@ DEPENDENCIES:
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - react-native-date-picker (from `../node_modules/react-native-date-picker`)
   - react-native-html-to-pdf (from `../node_modules/react-native-html-to-pdf`)
+  - "react-native-netinfo (from `../node_modules/@react-native-community/netinfo`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - react-native-view-shot (from `../node_modules/react-native-view-shot`)
   - react-native-webview (from `../node_modules/react-native-webview`)
@@ -2686,6 +2689,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-date-picker"
   react-native-html-to-pdf:
     :path: "../node_modules/react-native-html-to-pdf"
+  react-native-netinfo:
+    :path: "../node_modules/@react-native-community/netinfo"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
   react-native-view-shot:
@@ -2775,8 +2780,8 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   BigInt: f668a80089607f521586bbe29513d708491ef2f7
-  boost: 1dca942403ed9342f98334bf4c3621f011aa7946
-  DoubleConversion: f16ae600a246532c4020132d54af21d0ddb2a385
+  boost: 7e761d76ca2ce687f7cc98e698152abd03a18f90
+  DoubleConversion: cb417026b2400c8f53ae97020b2be961b59470cb
   EXConstants: be238322d57d084dc055dbd5d6fe6479510504ce
   EXImageLoader: ab4fcf9240cf3636a83c00e3fc5229d692899428
   EXJSONUtils: 1d3e4590438c3ee593684186007028a14b3686cd
@@ -2800,8 +2805,8 @@ SPEC CHECKSUMS:
   EXUpdatesInterface: 64f35449b8ef89ce08cdd8952a4d119b5de6821d
   fast_float: 06eeec4fe712a76acc9376682e4808b05ce978b6
   FBLazyVector: 84b955f7b4da8b895faf5946f73748267347c975
-  fmt: 01b82d4ca6470831d1cc0852a1af644be019e8f6
-  glog: 08b301085f15bcbb6ff8632a8ebaf239aae04e6a
+  fmt: a40bb5bd0294ea969aaaba240a927bd33d878cdd
+  glog: 5683914934d5b6e4240e497e0f4a3b42d1854183
   hermes-engine: 314be5250afa5692b57b4dd1705959e1973a8ebe
   RCT-Folly: 36fe2295e44b10d831836cc0d1daec5f8abcf809
   RCTDeprecation: 83ffb90c23ee5cea353bd32008a7bca100908f8c
@@ -2836,6 +2841,7 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: 8fc1bfccd27980ed6cfec1f52ffcd6af336f48f7
   react-native-date-picker: 152b88cc5dcf23eb0d2370cebcc35dacbc57a2d6
   react-native-html-to-pdf: 4c5c6e26819fe202971061594058877aa9b25265
+  react-native-netinfo: f0a9899081c185db1de5bb2fdc1c88c202a059ac
   react-native-safe-area-context: 6cec90ce53951d3b52dc73e873323a4a7662fc0c
   react-native-view-shot: 92c37eb33b41948a68d0c4a07674cb8ac1a487a9
   react-native-webview: 02c782d78f1a20bcb739f4556d936f84e4ca4f5c
@@ -2879,8 +2885,8 @@ SPEC CHECKSUMS:
   RNSVG: 257f59c952e296c9c36035a8f49b61fda48e398a
   SignatureModule: d57c3f90d4117a1802c0d4374d5981b9addeff5f
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
-  Yoga: aa3de42163965879e7d68a5caaf3e1cedb2cbeb2
+  Yoga: 50518ade05048235d91a78b803336dbb5b159d5d
 
 PODFILE CHECKSUM: 62a0d804e381c6b808d6d65a4d35fac9fbde3d72
 
-COCOAPODS: 1.16.2
+COCOAPODS: 1.15.2

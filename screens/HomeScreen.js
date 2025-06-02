@@ -15,6 +15,7 @@ import { getAuth } from 'firebase/auth';
 import { app } from '../firebaseConfig'; 
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import { captureRef } from 'react-native-view-shot';
 
 // Configuración de Firebase
 //ffbe00
@@ -64,7 +65,8 @@ const HomeScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
   const [currentUpload, setCurrentUpload] = useState(null);
-  const signatureRef = useRef(null);
+  const signatureViewRef = useRef(null);
+
   const [categoria, setCategoria] = useState(null);
   const steps = [
     'GeneroForm',
@@ -77,6 +79,52 @@ const HomeScreen = ({ navigation }) => {
     'DocumentacionForm',
   ];
 
+
+  const uploadFirmaIfNeeded = async (firma) => {
+    if (!firma) {
+      console.warn('⚠️ No hay firma para subir');
+      return null;
+    }
+  
+    if (firma.startsWith('http')) {
+      console.log('📌 Firma ya subida:', firma);
+      return firma;
+    }
+  
+    const fileName = `firma_${Date.now()}.png`;
+  
+    try {
+      let fileUri;
+  
+      // Si es un data URI
+      if (firma.startsWith('data:image')) {
+        const base64 = firma.split(',')[1]; // quita el encabezado
+        fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+        await FileSystem.writeAsStringAsync(fileUri, base64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      } else {
+        // Firma en base64 sin encabezado
+        fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+        await FileSystem.writeAsStringAsync(fileUri, firma, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      }
+  
+      const url = await safeUploadFile({
+        uri: fileUri,
+        name: fileName,
+        folder: 'firmas',
+        type: 'image/png',
+      });
+  
+      return url;
+    } catch (error) {
+      console.error('❌ Error subiendo firma:', error);
+      throw new Error('No se pudo procesar la firma');
+    }
+  };
+  
   
 const safeUploadFile = async ({ uri, name, folder, type = null }) => {
   try {
@@ -180,7 +228,7 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
         if (!formData.curp || formData.curp.length !== 18) newErrors.curp = 'CURP debe tener 18 caracteres';
         break;
       case 'FirmaFotoForm':
-        if (formData.firma.length === 0) newErrors.firma = 'Captura tu firma';
+        if ((formData.firma.length === 0) && (Platform.OS !== 'ios')) newErrors.firma = 'Captura tu firma';
         if (!formData.foto_jugador) newErrors.foto_jugador = 'Sube una foto del jugador';
         break;
     }
@@ -220,28 +268,6 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
       }).start();
     });
   };
-
-  const captureSignature = async () => {
-  if (!signatureRef.current) return null;
-  
-  try {
-    // Crear un canvas temporal para la firma
-    const canvas = await signatureRef.current.toDataURL();
-    
-    // En Android/iOS necesitamos convertir el data URL a un blob
-    if (Platform.OS !== 'web') {
-      const response = await fetch(canvas);
-      const blob = await response.blob();
-      return URL.createObjectURL(blob);
-    }
-    
-    return canvas;
-  } catch (error) {
-    console.error('Error al capturar firma:', error);
-    return null;
-  }
-};
-  
 
   const handleSelectFile = async (field) => {
     try {
@@ -357,19 +383,27 @@ const handleSubmit = async () => {
       }
     }
 
-    // 4. Subir firma si existe
+  // 4. Subir firma si existe
     let firmaURL = null;
-    if (formData.firma.length > 0) {
-      setCurrentUpload('Firma');
-      const signatureImage = await captureSignature();
-      if (signatureImage) {
-        firmaURL = await safeUploadFile({
-          uri: signatureImage,
-          name: 'firma.png',
-          folder: 'firmas',
-          type: 'image/png'
-        });
+    if (Platform.OS != 'ios') {
+      try {
+        setCurrentUpload('Firma');
+        firmaURL = await uploadFirmaIfNeeded(formData.firma);
+      
+        if (firmaURL) {
+          setFormData(prev => ({
+            ...prev,
+            firma: firmaURL,
+            documentos: {
+              ...prev.documentos,
+              firma: firmaURL,
+            },
+          }));
+        }
+      } catch (e) {
+        console.error('❌ Error al subir la firma:', e);
       }
+      
     }
 
     // 5. Obtener temporada activa
@@ -391,6 +425,26 @@ const handleSubmit = async () => {
     } catch (dbError) {
       console.error('Error al obtener temporada activa:', dbError);
     }
+
+    const datosMinimos = {
+      ...formData,
+      foto: fotoJugadorURL,
+      firma: firmaURL
+    };
+    
+    // Verifica si algún campo requerido está vacío, null o undefined
+    const estaIncompleto = Object.entries(datosMinimos).some(([key, value]) => {
+      if (value === undefined || value == null || value == '') {
+    }
+      return value === undefined || value === null || value === '';
+    });
+
+    const documentosIncompletos = Object.entries(datosMinimos.documentos).some(([key, value]) => {
+      if (value === undefined || value == null || value == '') {
+    }
+      return value === undefined || value === null || value === '';
+    });
+    const estatus = (estaIncompleto || documentosIncompletos) ? 'Incompleto' : 'Completo';
 
     // 6. Crear objeto de registro
     const datosRegistro = {
@@ -419,7 +473,7 @@ const handleSubmit = async () => {
       numero_mfl: formData.numero_mfl,
       fecha_registro: new Date(),
       uid: uid,
-      estatus: "Completo",
+      estatus,
       ...(temporadaActiva && { temporadaId: temporadaActiva }),
       ...(formData.tipo_inscripcion === 'transferencia' && {
         transferencia: formData.transferencia
@@ -638,7 +692,8 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
       case 'TransferenciaForm':
         return <TransferenciaForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
       case 'FirmaFotoForm':
-        return <FirmaFotoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} signatureRef={signatureRef} />;
+        return <FirmaFotoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} signatureViewRef={signatureViewRef} onSubmit={handleSubmit}
+          currentUpload={currentUpload} />;
       case 'DocumentacionForm':
         return <DocumentacionForm 
           formData={formData} 
@@ -664,7 +719,7 @@ const processPayments = async (playerId, formData, temporadaActiva) => {
           <Animated.View style={{ opacity: fadeAnim, flex: 1 }}>
             {renderForm()}
           </Animated.View>
-          {currentStep > 0 && currentStep !== steps.length - 1 && (
+          {currentStep > 0 && currentStep !== steps.length && (
             <TouchableOpacity style={styles.backButton} onPress={handlePreviousStep}>
               <Text style={styles.backButtonText}>Atrás</Text>
             </TouchableOpacity>
@@ -1005,7 +1060,7 @@ useEffect(() => {
   }, [formData.fecha_nacimiento, formData.sexo, formData.tipo_inscripcion]);
 
   const onChangeMobile = (event, selectedDate) => {
-
+    setShowPicker(false);
     if (selectedDate) {
       updateDate(selectedDate);
     }
@@ -1220,6 +1275,10 @@ useEffect(() => {
   );
 };
 
+const validateContact = (direccion, telefono) => {
+  if ((direccion !== undefined && direccion !== '') && (telefono !== undefined && telefono !== '')) return true
+}
+
 // Componente DatosContactoForm
 const DatosContactoForm = ({ formData, setFormData, errors, onNext }) => {
   return (
@@ -1246,7 +1305,7 @@ const DatosContactoForm = ({ formData, setFormData, errors, onNext }) => {
           keyboardType="phone-pad"
         />
         {errors.telefono && <Text style={styles.errorText}>{errors.telefono}</Text>}
-        <TouchableOpacity style={styles.button} onPress={onNext}>
+        <TouchableOpacity style={styles.button} onPress={onNext} disabled={!validateContact(formData.direccion, formData.telefono)}>
           <Text style={styles.buttonText}>Continuar</Text>
         </TouchableOpacity>
       </View>
@@ -1357,13 +1416,14 @@ const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
 };
 
 // Componente FirmaFotoForm
-const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) => {
+const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureViewRef, onSubmit, currentUpload }) => {
   const [paths, setPaths] = useState([]);
   const [currentPath, setCurrentPath] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(null);
   const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
-
+  const [scrollEnabled, setScrollEnabled] = useState(true);
+  const titleDrawing = Platform.OS == 'ios' ? 'Foto' : 'Firma y Foto'
   useEffect(() => {
     (async () => {
       const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
@@ -1377,6 +1437,7 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (event, gestureState) => {
+      setScrollEnabled(false);
       const { locationX, locationY } = event.nativeEvent;
       setIsDrawing(true);
       setCurrentPath([{ x: locationX, y: locationY }]);
@@ -1390,7 +1451,7 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
       setIsDrawing(false);
       setPaths((prevPaths) => [...prevPaths, currentPath]);
       setCurrentPath([]);
-      setFormData(prev => ({ ...prev, firma: [...prev.firma, ...currentPath] }));
+      setScrollEnabled(true);
     },
   });
 
@@ -1405,6 +1466,13 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
     setPaths([]);
     setCurrentPath([]);
     setFormData(prev => ({ ...prev, firma: [] }));
+    setFormData(prev => ({
+      ...prev,
+      documentos: {
+        ...prev.documentos,
+        firma: []
+      }
+    }));
   };
 
  const handleSelectFoto = async () => {
@@ -1467,39 +1535,76 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
     }
   };
 
+  const captureSignature = async () => {
+    try {
+      const uri = await captureRef(signatureViewRef, {
+        format: 'png',
+        quality: 1,
+        result: 'base64', // O 'tmpfile' si prefieres URI temporal
+      });
+      return uri;
+    } catch (error) {
+      console.error('Error capturando firma:', error);
+      return null;
+    }
+  };
+  
+  const saveFirm = async () => {
+    // Espera al siguiente frame (~50ms) para asegurar que el trazo se renderice
+    setTimeout(async () => {
+      const firmaBase64 = await captureSignature();
+  
+      if (!firmaBase64) {
+        Alert.alert('Error', 'No se pudo capturar la firma. Intenta de nuevo.');
+        return;
+      }
+  
+      const firmaDataUri = `data:image/png;base64,${firmaBase64}`;
+  
+      setFormData((prev) => ({
+        ...prev,
+        firma: firmaDataUri,
+        documentos: {
+          ...prev.documentos,
+          firma: firmaDataUri,
+        },
+      }));
+  
+      onNext(); // ✅ Llama después de guardar correctamente
+    }, 100); // puedes ajustar a 50 o 100 ms si quieres probar
+  };
+
   return (
     <ScrollView 
             style={styles.mainContent}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
+            scrollEnabled={scrollEnabled}
           >
       <View style={styles.formContainer}>
-        <Text style={styles.title}>Firma y Foto</Text>
-        
+        <Text style={styles.title}>{titleDrawing}</Text>
+        { Platform.OS !== 'ios' ? <View>
         <Text style={styles.sectionTitle}>Firma:</Text>
         <View style={styles.signatureContainer} {...panResponder.panHandlers}>
-          <Svg style={styles.canvas} ref={signatureRef}>
-            {paths.map((path, index) => (
-              <Path
-                key={index}
-                d={getPathData(path)}
-                stroke="black"
-                strokeWidth={3}
-                fill="none"
-              />
-            ))}
-            <Path
-              d={getPathData(currentPath)}
-              stroke="black"
-              strokeWidth={3}
-              fill="none"
-            />
-          </Svg>
+        <View
+            ref={signatureViewRef}
+            collapsable={false}
+            style={{ backgroundColor: 'white', flex: 1}} // ajusta según necesidad
+          >
+            <Svg width="100%" height="100%">
+              {paths.map((path, index) => (
+                <Path key={index} d={getPathData(path)} stroke="black" strokeWidth={3} fill="none" />
+              ))}
+              <Path d={getPathData(currentPath)} stroke="black" strokeWidth={3} fill="none" />
+              </Svg>
+          </View>
+
         </View>
         <TouchableOpacity style={styles.secondaryButton} onPress={clearCanvas}>
           <Text style={styles.secondaryButtonText}>Limpiar Firma</Text>
         </TouchableOpacity>
         {errors.firma && <Text style={styles.errorText}>{errors.firma}</Text>}
+        </View> : <View/>}
         
         <Text style={styles.sectionTitle}>Foto del Jugador:</Text>
         {formData.foto_jugador && (
@@ -1517,20 +1622,84 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
           </TouchableOpacity>
         </View>
         {errors.foto_jugador && <Text style={styles.errorText}>{errors.foto_jugador}</Text>}
-        
-        <TouchableOpacity style={styles.button} onPress={onNext}>
-          <Text style={styles.buttonText}>Continuar</Text>
-        </TouchableOpacity>
+        {Platform.OS === 'ios' ? 
+          <View>
+            <Declaracion onSubmit={onSubmit} currentUpload={currentUpload}/>
+          </View> : <View/>}
+        {Platform.OS !== 'ios' ? <TouchableOpacity style={styles.button} onPress={saveFirm}>
+          <Text style={styles.buttonText}>Continuar aqui</Text>
+        </TouchableOpacity> : <View/>}
       </View>
     </ScrollView>
   );
 };
 
-
-const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, currentUpload, handleSelectFile }) => {
+const Declaracion = ({onSubmit, currentUpload}) => {
   const [acceptedRegulation, setAcceptedRegulation] = useState(false);
   const [acceptedDeclaration, setAcceptedDeclaration] = useState(false);
+  return (
+    <View>
+       {/* Sección de declaración de veracidad */}
+       <View style={styles.declarationContainer}>
+          <View style={styles.checkboxContainer}>
+            <TouchableOpacity 
+              style={[styles.checkbox, acceptedDeclaration && styles.checkboxChecked]}
+              onPress={() => setAcceptedDeclaration(!acceptedDeclaration)}
+            >
+              {acceptedDeclaration && <Text style={styles.checkmark}>✓</Text>}
+            </TouchableOpacity>
+            <Text style={styles.declarationText}>
+              Declaro bajo protesta de decir verdad que la información y documentación proporcionada en esta 
+              aplicación y presentada al club toros es verídica, por lo que en caso de existir falsedad en 
+              ella deslindo de toda responsabilidad al Club Toros y tengo pleno conocimiento que se aplicarán 
+              las sanciones administrativas y penas establecidas en los ordenamientos del reglamento 
+              establecido por la liga.
+            </Text>
+          </View>
+        </View>
 
+        {/* Sección de aceptación del reglamento
+        aqui 2 */}
+        <View style={styles.regulationContainer}>
+          <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
+          
+          <TouchableOpacity 
+            onPress={() => Linking.openURL('https://clubtoros.com/politicas/reglamentoToros.pdf')} 
+            style={styles.regulationLink}
+          >
+            <Text style={styles.regulationLinkText}>Descargue, lea y firme el reglamento</Text>
+          </TouchableOpacity>
+          
+          <View style={styles.checkboxContainer}>
+            <TouchableOpacity 
+              style={[styles.checkbox, acceptedRegulation && styles.checkboxChecked]}
+              onPress={() => setAcceptedRegulation(!acceptedRegulation)}
+            >
+              {acceptedRegulation && <Text style={styles.checkmark}>✓</Text>}
+            </TouchableOpacity>
+            <Text style={styles.regulationText}>
+              Confirmo que he leído y acepto el reglamento del equipo
+            </Text>
+          </View>
+        </View>
+
+        <TouchableOpacity 
+          style={[
+            styles.submitButton,
+            (!acceptedRegulation || !acceptedDeclaration || currentUpload) && styles.disabledButton
+          ]} 
+          onPress={onSubmit}
+          disabled={!acceptedRegulation || !acceptedDeclaration || !!currentUpload}
+        >
+          <Text style={styles.submitButtonText}>
+            {currentUpload ? 'Subiendo archivos...' : 'Finalizar Registro'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+  )
+}
+
+const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, currentUpload, handleSelectFile }) => {
   const renderFileInfo = (field) => {
     const doc = formData.documentos[field];
     if (!doc || !doc.uri) return null;
@@ -1586,62 +1755,7 @@ const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, cu
             {renderFileInfo(field)}
           </View>
         ))}
-
-        {/* Sección de declaración de veracidad */}
-        <View style={styles.declarationContainer}>
-          <View style={styles.checkboxContainer}>
-            <TouchableOpacity 
-              style={[styles.checkbox, acceptedDeclaration && styles.checkboxChecked]}
-              onPress={() => setAcceptedDeclaration(!acceptedDeclaration)}
-            >
-              {acceptedDeclaration && <Text style={styles.checkmark}>✓</Text>}
-            </TouchableOpacity>
-            <Text style={styles.declarationText}>
-              Declaro bajo protesta de decir verdad que la información y documentación proporcionada en esta 
-              aplicación y presentada al club toros es verídica, por lo que en caso de existir falsedad en 
-              ella deslindo de toda responsabilidad al Club Toros y tengo pleno conocimiento que se aplicarán 
-              las sanciones administrativas y penas establecidas en los ordenamientos del reglamento 
-              establecido por la liga.
-            </Text>
-          </View>
-        </View>
-
-        {/* Sección de aceptación del reglamento */}
-        <View style={styles.regulationContainer}>
-          <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
-          
-          <TouchableOpacity 
-            onPress={() => Linking.openURL('https://clubtoros.com/politicas/reglamentoToros.pdf')} 
-            style={styles.regulationLink}
-          >
-            <Text style={styles.regulationLinkText}>Descargue, lea y firme el reglamento</Text>
-          </TouchableOpacity>
-          
-          <View style={styles.checkboxContainer}>
-            <TouchableOpacity 
-              style={[styles.checkbox, acceptedRegulation && styles.checkboxChecked]}
-              onPress={() => setAcceptedRegulation(!acceptedRegulation)}
-            >
-              {acceptedRegulation && <Text style={styles.checkmark}>✓</Text>}
-            </TouchableOpacity>
-            <Text style={styles.regulationText}>
-              Confirmo que he leído y acepto el reglamento del equipo
-            </Text>
-          </View>
-        </View>
-
-        <TouchableOpacity 
-          style={[
-            styles.submitButton,
-            (!acceptedRegulation || !acceptedDeclaration || currentUpload) && styles.disabledButton
-          ]} 
-          onPress={onSubmit}
-          disabled={!acceptedRegulation || !acceptedDeclaration || !!currentUpload}
-        >
-          <Text style={styles.submitButtonText}>
-            {currentUpload ? 'Subiendo archivos...' : 'Finalizar Registro'}
-          </Text>
-        </TouchableOpacity>
+        <Declaracion onSubmit={onSubmit} currentUpload={currentUpload} />
       </View>
     </ScrollView>
   );

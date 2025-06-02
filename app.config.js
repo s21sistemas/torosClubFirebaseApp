@@ -1,6 +1,6 @@
 import withFixedFirebaseModularHeaders from "./expo-plugins/withFixedFirebaseModularHeaders";
 
-export default {
+export default() => ({
   expo: {
     name: "ClubToros",
     slug: "TorosClub",
@@ -67,4 +67,4 @@ export default {
       withFixedFirebaseModularHeaders // <- referencia directa al plugin
     ]
   }
-};
+});

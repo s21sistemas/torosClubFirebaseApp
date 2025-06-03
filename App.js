@@ -34,7 +34,7 @@ const MainTabs = () => (
         }
         return <Ionicons name={iconName} size={size} color={color} />;
       },
-      tabBarActiveTintColor: '#ffbe00',
+      tabBarActiveTintColor: '#b51f28',
       tabBarInactiveTintColor: 'gray',
       tabBarStyle: { backgroundColor: '#fff' },
     })}
@@ -71,7 +71,7 @@ const App = () => {
   if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'white' }}>
-        <ActivityIndicator size="large" color="#ffbe00" />
+        <ActivityIndicator size="large" color="#b51f28" />
       </View>
     );
   }

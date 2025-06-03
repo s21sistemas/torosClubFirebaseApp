@@ -298,7 +298,7 @@ const generatePDF = async (pago) => {
     try {
       if (Platform.OS !== 'web') {
         try {
-          const image = require('../assets/logoToros.jpg');
+          const image = require('../assets/logoPotros.jpg');
           logoBase64 = await FileSystem.readAsStringAsync(
             Image.resolveAssetSource(image).uri, 
             { encoding: FileSystem.EncodingType.Base64 }
@@ -308,7 +308,7 @@ const generatePDF = async (pago) => {
           console.warn('No se pudo cargar la imagen del logo:', imageError);
         }
       } else {
-        logoBase64 = '/logoToros.jpg';
+        logoBase64 = '/logoPotros.jpg';
       }
   
       const today = new Date();
@@ -318,7 +318,7 @@ const generatePDF = async (pago) => {
         year: 'numeric'
       });
 
-      let logo = 'https://clubtoros.com/img/logo.jpg';
+      let logo = 'https://admin.clubpotros.mx/assets/logo-Cgbns5w4.png';
 
       const html = `
       <html>
@@ -326,227 +326,225 @@ const generatePDF = async (pago) => {
           <meta charset="UTF-8">
           <style>
             body { 
-              font-family: 'Arial', sans-serif; 
-              padding: 30px;
-              color: #333;
-              line-height: 1.5;
+              font-family: Arial, sans-serif; 
+              padding: 0;
+              margin: 0;
+              color: #000;
+              font-size: 14px;
             }
-            .header { 
-              display: flex;
-              flex-direction: column;
-              align-items: center;
+            .container {
+              width: 100%;
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 15px;
+            }
+            .header {
+              text-align: center;
               margin-bottom: 20px;
-              border-bottom: 2px solid #eaeaea;
-              padding-bottom: 15px;
+              border-bottom: 1px solid #000;
+              padding-bottom: 10px;
+              position: relative;
             }
             .logo {
-              height: 60px;
-              width: auto;
-              margin-bottom: 15px;
+              position: absolute;
+              left: 0;
+              top: 0;
+              width: 80px;
+              height: auto;
             }
-            .title { 
-              font-size: 20px; 
+            .header-content {
+              margin-left: ${logoBase64 ? '90px' : '0'};
+            }
+            .club-name {
+              font-size: 18px;
               font-weight: bold;
-              color: #2c3e50;
-              margin: 10px 0 5px 0;
-            }
-            .subtitle {
-              font-size: 16px;
-              color: #7f8c8d;
               margin-bottom: 5px;
             }
-            .section {
-              margin-bottom: 15px;
-              background: #f9f9f9;
-              padding: 15px 20px;
-              border-radius: 5px;
-              border-left: 4px solid #3498db;
+            .club-subtitle {
+              font-size: 14px;
+              margin-bottom: 10px;
             }
-            .section h3 {
-              margin-top: 0;
-              color: #2c3e50;
-              border-bottom: 1px solid #eee;
-              padding-bottom: 8px;
+            .club-address {
+              font-size: 12px;
+              margin-bottom: 5px;
             }
-            .info-row {
+            .club-phone {
+              font-size: 12px;
+              margin-bottom: 10px;
+            }
+            .separator {
+              border-top: 1px dashed #000;
+              margin: 15px 0;
+            }
+            .receipt-title {
+              font-size: 16px;
+              font-weight: bold;
+              text-align: center;
+              margin: 15px 0;
+            }
+            .receipt-line {
               display: flex;
-              margin-bottom: 8px;
+              margin-bottom: 10px;
             }
-            .info-label {
+            .receipt-label {
+              width: 120px;
               font-weight: bold;
-              width: 150px;
-              color: #34495e;
             }
-            .info-value {
+            .receipt-value {
               flex: 1;
+              border-bottom: 1px solid #000;
+              padding-left: 10px;
             }
-            .status-paid {
-              color: #27ae60;
-              font-weight: bold;
+            .payment-method {
+              display: flex;
+              margin-top: 15px;
             }
-            .status-pending {
-              color: #e67e22;
-              font-weight: bold;
+            .payment-option {
+              margin-right: 20px;
+              display: flex;
+              align-items: center;
+            }
+            .signature-line {
+              margin-top: 40px;
+              text-align: center;
+              border-top: 1px solid #000;
+              width: 200px;
+              margin-left: auto;
+              margin-right: auto;
+              padding-top: 5px;
             }
             .footer {
               text-align: center;
-              margin-top: 10px;
-              font-size: 12px;
-              color: #95a5a6;
-              border-top: 1px solid #eee;
-              padding-top: 15px;
+              margin-top: 30px;
+              font-size: 10px;
             }
-            .temporada-info {
-              background-color: #e3f2fd;
-              padding: 10px;
-              border-radius: 5px;
-              margin-bottom: 10px;
-              text-align: center;
-              font-weight: bold;
+            .abono-detail {
+              margin-top: 5px;
+              font-size: 12px;
+              padding-left: 10px;
             }
           </style>
         </head>
         <body>
-          <div class="header">
-            ${logo ? `<img src="${logo}" class="logo" alt="Logo Club Toros" />` : ''}
-
-            <div class="title">COMPROBANTE DE PAGO</div>
-            <div class="subtitle">${esPorrista ? 'Porrista' : 'Jugador'}</div>
-          </div>
-          
-          ${temporadaData ? `
-          <div class="temporada-info">
-            Temporada: ${temporadaData.label || 'No especificada'}
-          </div>
-          ` : ''}
-          
-          <div class="section">
-            <h3>Información del ${esPorrista ? 'Porrista' : 'Jugador'}</h3>
-            <div class="info-row">
-              <div class="info-label">Nombre:</div>
-              <div class="info-value">${pagoData.nombre_jugador}</div>
-            </div>
-            ${pagoData.categoria ? `
-            <div class="info-row">
-              <div class="info-label">Categoría:</div>
-              <div class="info-value">${pagoData.categoria}</div>
-            </div>` : ''}
-          </div>
-          
-          <div class="section">
-            <h3>Detalles del Pago</h3>
-            <div class="info-row">
-              <div class="info-label">Concepto:</div>
-              <div class="info-value">${formatTipoPago(pago.tipo)}</div>
-            </div>
-            <div class="info-row">
-              <div class="info-label">Monto:</div>
-              <div class="info-value">$${safeToFixed(pago.monto)}</div>
-            </div>
-            ${pago.submonto > 0 ? `
-            <div class="info-row">
-              <div class="info-label">Submonto:</div>
-              <div class="info-value">$${safeToFixed(pago.submonto)}</div>
-            </div>` : ''}
-            ${pago.abonos && pago.abonos.length > 0 ? `
-              <div class="section">
-                <h3>Detalle de Abonos</h3>
-                <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
-                  <thead>
-                    <tr style="background-color: #f5f5f5;">
-                      <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Fecha</th>
-                      <th style="padding: 8px; text-align: right; border-bottom: 1px solid #ddd;">Monto</th>
-                      <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Método</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${pago.abonos.map(abono => `
-                    <tr>
-                      <td style="padding: 8px; border-bottom: 1px solid #eee;">${abono.fecha || 'No especificada'}</td>
-                      <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">$${safeToFixed(abono.cantidad)}</td>
-                      <td style="padding: 8px; border-bottom: 1px solid #eee;">${abono.metodo || 'No especificado'}</td>
-                    </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-                <div style="display: flex; justify-content: space-between; margin-top: 10px;">
-                  <div style="font-weight: bold;">Total abonado:</div>
-                  <div style="font-weight: bold;">$${safeToFixed(pago.total_abonado)}</div>
-                </div>
-                ${pago.estatus === 'pendiente' ? `
-                <div style="display: flex; justify-content: space-between; margin-top: 5px;">
-                  <div style="font-weight: bold; color: #e53935;">Saldo pendiente:</div>
-                  <div style="font-weight: bold; color: #e53935;">$${safeToFixed(pago.saldo_pendiente)}</div>
-                </div>
-                ` : ''}
-              </div>
-              ` : ''}
-            ${pago.fecha_limite ? `
-            <div class="info-row">
-              <div class="info-label">Fecha límite:</div>
-              <div class="info-value">${pago.fecha_limite}</div>
-            </div>` : ''}
-            ${pago.fecha_pago ? `
-            <div class="info-row">
-              <div class="info-label">Fecha de pago:</div>
-              <div class="info-value">${pago.fecha_pago}</div>
-            </div>` : ''}
-            <div class="info-row">
-              <div class="info-label">Estado:</div>
-              <div class="info-value ${pago.estatus === 'pagado' ? 'status-paid' : 'status-pending'}">
-                ${pago.estatus === 'pagado' ? 'PAGADO' : 'PENDIENTE'}
+          <div class="container">
+            <div class="header">
+              ${logoBase64 ? `<img src="${logoBase64}" class="logo" alt="Logo Club Potros" />` : ''}
+              <div class="header-content">
+                <div class="club-name">CLUB POTROS DE LA ANÁHUAC</div>
+                <div class="club-subtitle">FRATERNIDAD LEGÍTIMOS POTROS, A.C.</div>
+                <div class="club-address">Porfirio Barba Jacob No. 901, Col. Anáhuac, San Nicolás de los Garza, N.L.</div>
+                <div class="club-phone">Tels. 81-8376-1777 / 81-2236-0535</div>
               </div>
             </div>
-            ${pago.beca && pago.beca !== "0" ? `
-            <div class="info-row">
-              <div class="info-label">Beca aplicada:</div>
-              <div class="info-value">${pago.beca}%</div>
-            </div>` : ''}
-            ${pago.descuento && pago.descuento !== "0" ? `
-            <div class="info-row">
-              <div class="info-label">Descuento aplicado:</div>
-              <div class="info-value">${pago.descuento}%</div>
-            </div>` : ''}
-            ${pago.abono === "SI" ? `
-            <div class="info-row">
-              <div class="info-label">Abonos:</div>
-              <div class="info-value">$${safeToFixed(pago.total_abonado)} de $${safeToFixed(pago.monto)}</div>
-            </div>` : ''}
+  
+            <div class="separator"></div>
+  
+            <div class="receipt-title">RECIBO</div>
+  
+            <div class="receipt-line">
+              <div class="receipt-label">Recibí:</div>
+              <div class="receipt-value">${pagoData.nombre_jugador}</div>
+            </div>
+  
+            <div class="receipt-line">
+              <div class="receipt-label">La cantidad de $</div>
+              <div class="receipt-value">${pago.monto}</div>
+            </div>
+  
+            <div class="receipt-line">
+              <div class="receipt-label">Por concepto de</div>
+              <div class="receipt-value">${pago.tipo}</div>
+            </div>
+  
+            ${pago.abono === 'SI' ? `
+            <div class="receipt-line">
+              <div class="receipt-label">Total abonado:</div>
+              <div class="receipt-value">$${pago.total_abonado || 0} de $${pago.monto}</div>
+            </div>
+            ` : ''}
+  
             ${pago.metodo_pago ? `
-            <div class="info-row"> 
-              <div class="info-label">Método de pago:</div>
-              <div class="info-value">${pago.metodo_pago}</div>
-            </div>` : ''}
-          </div>
-          
-          <div class="footer">
-            Documento generado el ${formattedDate} - Club Toros © Unidad Deportiva Cedeco, San Nicolás de los Garza Nuevo León, Tel: 8180507808 ${today.getFullYear()}
+            <div class="receipt-line">
+              <div class="receipt-label">Método de pago:</div>
+              <div class="receipt-value">${pago.metodo_pago}</div>
+            </div>
+            ` : ''}
+  
+            <div class="receipt-line">
+              <div class="receipt-label">${esPorrista ? 'Porrista' : 'Jugador'}</div>
+              <div class="receipt-value">${pagoData.nombre_jugador}</div>
+            </div>
+  
+            ${!esPorrista ? `
+            <div class="receipt-line">
+              <div class="receipt-label">Categoria</div>
+              <div class="receipt-value">${pagoData.categoria}</div>
+            </div>
+            ` : ''}
+  
+            ${pago.abono === 'SI' && pago.abonos && pago.abonos.length > 0 ? `
+            <div class="separator"></div>
+            <div class="receipt-title">DETALLE DE ABONOS</div>
+            
+            ${pago.abonos.map(abono => `
+              <div class="receipt-line">
+                <div class="receipt-label">Abono:</div>
+                <div class="receipt-value">$${abono.monto || 0}</div>
+              </div>
+              <div class="receipt-line">
+                <div class="receipt-label">Fecha:</div>
+                <div class="receipt-value">${abono.fecha || 'No especificada'}</div>
+              </div>
+              <div class="receipt-line">
+                <div class="receipt-label">Método:</div>
+                <div class="receipt-value">${abono.metodo_pago || 'No especificado'}</div>
+              </div>
+              <div class="separator" style="margin: 10px 0;"></div>
+            `).join('')}
+            ` : ''}
+  
+            <div class="receipt-line">
+              <div class="receipt-label">Fecha</div>
+              <div class="receipt-value">${formattedDate}</div>
+            </div>
+  
+            <div class="separator"></div>
+  
+            <div class="receipt-line" style="margin-top: 20px;">
+              <div class="receipt-label">Recibí:</div>
+              <div class="receipt-value"></div>
+            </div>
+  
+            <div class="footer">
+              Documento generado el ${formattedDate} - Club Potros © ${today.getFullYear()}
+            </div>
           </div>
         </body>
-      </html>`;
+      </html>
+      `;
   
-      if (Platform.OS === 'web') {
-        const printWindow = window.open('', '_blank');
-        printWindow.document.write(html);
-        printWindow.document.close();
-        printWindow.print();
-      } else {
-        const { uri } = await Print.printToFileAsync({
-          html,
-          width: 612,
-          height: 792,
-        });
-  
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri, {
-            mimeType: 'application/pdf',
-            dialogTitle: 'Compartir comprobante',
-            UTI: 'com.adobe.pdf',
-          });
-        } else {
-          Alert.alert('PDF generado', `Archivo guardado en: ${uri}`);
-        }
-      }
+       if (Platform.OS === 'web') {
+              const printWindow = window.open('', '_blank');
+              printWindow.document.write(html.replace('../assets/LogoPotros.jpg', '/assets/LogoPotros.jpg'));
+              printWindow.document.close();
+              printWindow.print();
+            } else {
+              const { uri } = await Print.printToFileAsync({
+                html,
+                width: 612,
+                height: 792,
+              });
+        
+              if (await Sharing.isAvailableAsync()) {
+                await Sharing.shareAsync(uri, {
+                  mimeType: 'application/pdf',
+                  dialogTitle: 'Compartir recibo',
+                  UTI: 'com.adobe.pdf'
+                });
+              } else {
+                Alert.alert('PDF generado', `Archivo guardado en: ${uri}`);
+              }
+            }
     } catch (error) {
       console.error('Error al generar el PDF:', error);
       Alert.alert('Error', 'No se pudo generar el comprobante');
@@ -557,7 +555,7 @@ const generatePDF = async (pago) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ffbe00" />
+        <ActivityIndicator size="large" color="#b51f28" />
         <Text style={styles.loadingText}>Cargando información de pagos...</Text>
       </View>
     );
@@ -926,7 +924,7 @@ const styles = StyleSheet.create({
     color: "#777",
   },
   retryButton: {
-    backgroundColor: "#ffbe00",
+    backgroundColor: "#b51f28",
     paddingVertical: 12,
     paddingHorizontal: 25,
     borderRadius: 5,
@@ -1085,7 +1083,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   downloadButton: {
-    backgroundColor: "#ffbe00",
+    backgroundColor: "#b51f28",
     borderRadius: 5,
     padding: 8,
     alignItems: "center",

@@ -19,7 +19,7 @@ import { db, auth } from '../firebaseConfig';
 import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { Ionicons } from '@expo/vector-icons';
-//ffbe00
+//b51f28
 const RegisterScreen = ({ navigation }) => {
   const [nombreCompleto, setNombreCompleto] = useState('');
   const [correo, setCorreo] = useState('');
@@ -71,6 +71,7 @@ const RegisterScreen = ({ navigation }) => {
   };
 
   const validateForm = () => {
+
     let isValid = true;
     const newErrors = { nombreCompleto: '', correo: '', telefono: '', ocupacion: '' };
 
@@ -78,7 +79,7 @@ const RegisterScreen = ({ navigation }) => {
       newErrors.nombreCompleto = 'El nombre completo es obligatorio.';
       isValid = false;
     }
-
+    
     if (!correo.trim()) {
       newErrors.correo = 'El correo es obligatorio.';
       isValid = false;
@@ -103,7 +104,7 @@ const RegisterScreen = ({ navigation }) => {
 
   const sendEmail = async (email, code, uid) => {
     try {
-      const response = await fetch('https://us-central1-clubtoros-c8a29.cloudfunctions.net/sendEmailFunction', {
+      const response = await fetch('https://us-central1-clubpotros-f28a5.cloudfunctions.net/sendEmail', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -324,7 +325,7 @@ const styles = StyleSheet.create({
   },
   leftColumn: {
     flex: 1,
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -368,21 +369,21 @@ const styles = StyleSheet.create({
     borderColor: '#FF3B30',
   },
   loginButton: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     padding: 12,
     borderRadius: 10,
     alignItems: 'center',
     marginBottom: 15,
     flexDirection: 'row',
     justifyContent: 'center',
-    shadowColor: '#ffbe00',
+    shadowColor: '#b51f28',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
     elevation: 3,
   },
   loginButtonPressed: {
-    backgroundColor: '#ffbe60',
+    backgroundColor: '#b51f28',
   },
   loginButtonDisabled: {
     backgroundColor: '#cccccc',
@@ -396,7 +397,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   linkText: {
-    color: '#ffbe00',
+    color: '#b51f28',
     textAlign: 'center',
     marginBottom: 10,
     fontSize: 14,

@@ -18,7 +18,7 @@ import * as FileSystem from 'expo-file-system';
 import { captureRef } from 'react-native-view-shot';
 
 // Configuración de Firebase
-//ffbe00
+//b51f28
 const auth = getAuth(app);
 const storage = getStorage(app);
 const db = getFirestore(app);
@@ -1608,27 +1608,10 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureViewRef
 
 const Declaracion = ({onSubmit, currentUpload}) => {
   const [acceptedRegulation, setAcceptedRegulation] = useState(false);
-  const [acceptedDeclaration, setAcceptedDeclaration] = useState(false);
   return (
     <View>
        {/* Sección de declaración de veracidad */}
-       <View style={styles.declarationContainer}>
-          <View style={styles.checkboxContainer}>
-            <TouchableOpacity 
-              style={[styles.checkbox, acceptedDeclaration && styles.checkboxChecked]}
-              onPress={() => setAcceptedDeclaration(!acceptedDeclaration)}
-            >
-              {acceptedDeclaration && <Text style={styles.checkmark}>✓</Text>}
-            </TouchableOpacity>
-            <Text style={styles.declarationText}>
-              Declaro bajo protesta de decir verdad que la información y documentación proporcionada en esta 
-              aplicación y presentada al club toros es verídica, por lo que en caso de existir falsedad en 
-              ella deslindo de toda responsabilidad al Club Toros y tengo pleno conocimiento que se aplicarán 
-              las sanciones administrativas y penas establecidas en los ordenamientos del reglamento 
-              establecido por la liga.
-            </Text>
-          </View>
-        </View>
+      
 
         {/* Sección de aceptación del reglamento
         aqui 2 */}
@@ -1636,7 +1619,7 @@ const Declaracion = ({onSubmit, currentUpload}) => {
           <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
           
           <TouchableOpacity 
-            onPress={() => Linking.openURL('https://clubtoros.com/politicas/reglamentoToros.pdf')} 
+            onPress={() => Linking.openURL('https://clubpotros.mx/politicas/ReglamentoPotros.pdf')} 
             style={styles.regulationLink}
           >
             <Text style={styles.regulationLinkText}>Descargue, lea y firme el reglamento</Text>
@@ -1658,10 +1641,10 @@ const Declaracion = ({onSubmit, currentUpload}) => {
         <TouchableOpacity 
           style={[
             styles.submitButton,
-            (!acceptedRegulation || !acceptedDeclaration || currentUpload) && styles.disabledButton
+            (!acceptedRegulation || currentUpload) && styles.disabledButton
           ]} 
           onPress={onSubmit}
-          disabled={!acceptedRegulation || !acceptedDeclaration || !!currentUpload}
+          disabled={!acceptedRegulation || !!currentUpload}
         >
           <Text style={styles.submitButtonText}>
             {currentUpload ? 'Subiendo archivos...' : 'Finalizar Registro'}
@@ -1785,7 +1768,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   button: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     padding: 15,
     borderRadius: 10,
     alignItems: 'center',
@@ -1797,20 +1780,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   secondaryButton: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     padding: 12,
     borderRadius: 5,
     alignItems: 'center',
     marginVertical: 10,
     borderWidth: 1,
-    borderColor: '#ffbe00',
+    borderColor: '#b51f28',
   },
   secondaryButtonText: {
     color: '#333',
     fontWeight: '500',
   },
   submitButton: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     padding: 15,
     borderRadius: 5,
     alignItems: 'center',
@@ -1830,7 +1813,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 20,
     left: 20,
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     padding: 15,
     borderRadius: 5,
   },
@@ -1937,7 +1920,7 @@ const styles = StyleSheet.create({
     color: '#444',
   },
   uploadButton: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     padding: 12,
     borderRadius: 6,
     alignItems: 'center',
@@ -1976,7 +1959,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   disabledButton: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
   },
   webInput: {
     borderWidth: 1,

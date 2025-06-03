@@ -37,6 +37,8 @@ const PagosScreen = ({ route, navigation }) => {
   const formatTipoPago = (tipo) => {
     return tipo === "Túnel" ? "Aportación" : tipo;
   };
+  
+
 
   const formatFirestoreDate = (dateString) => {
     if (!dateString) return null;
@@ -70,6 +72,7 @@ const PagosScreen = ({ route, navigation }) => {
     return null;
   };
 
+
   const checkSemanaPago = (fechaUltimoPago) => {
     if (!fechaUltimoPago) return true;
     
@@ -93,10 +96,12 @@ const PagosScreen = ({ route, navigation }) => {
     return diffDias >= 7;
   };
 
+
   const safeToFixed = (value, decimals = 2) => {
     const num = Number(value) || 0;
     return num.toFixed(decimals);
   };
+
 
   useEffect(() => {
     if (route.params?.jugadorId) {
@@ -106,6 +111,7 @@ const PagosScreen = ({ route, navigation }) => {
       setEsPorrista(route.params.esPorrista);
     }
   }, [route.params]);
+
 
   const fetchTemporadaData = async (temporadaInfo) => {
     try {
@@ -138,8 +144,11 @@ const PagosScreen = ({ route, navigation }) => {
     const marked = {};
     pagoData.pagos.forEach((pago) => {
       const fechaFormateada = formatFirestoreDate(pago.fecha_limite);
+
       if (fechaFormateada) {
+
         marked[fechaFormateada] = {
+
           marked: true,
           dotColor: pago.estatus === "pendiente" ? "#FF5252" : "#4CAF50",
           selected: true,
@@ -147,6 +156,7 @@ const PagosScreen = ({ route, navigation }) => {
           selectedTextColor: pago.estatus === "pendiente" ? "#000" : "#FFF",
           customStyles: {
             container: {
+
               borderRadius: 20,
               backgroundColor: pago.estatus === "pendiente" ? "#FFF3E0" : "#E8F5E9",
               borderWidth: 1,
@@ -156,16 +166,22 @@ const PagosScreen = ({ route, navigation }) => {
               shadowOffset: { width: 0, height: 2 },
               shadowOpacity: 0.3,
               shadowRadius: 3,
+
             },
             text: {
               color: pago.estatus === "pendiente" ? "#D84315" : "#1B5E20",
               fontWeight: 'bold',
               fontSize: 14,
             },
+
           }
+
         };
+
       }
+      
     });
+
     return marked;
   };
 
@@ -184,60 +200,70 @@ const PagosScreen = ({ route, navigation }) => {
         try {
           if (!querySnapshot.empty) {
             const docData = querySnapshot.docs[0].data();
-            
-              const transformedData = {
-                id: querySnapshot.docs[0].id,
-                jugadorId: jugadorId,
-                monto_total: docData.monto_total || 0,
-                nombre_jugador: docData.nombre || (esPorrista ? "Porrista" : "Jugador"),
-                categoria: docData.categoria || null,
-                temporadaId: docData.temporadaId || null,
-                fecha_registro: docData.fecha_registro || new Date().toISOString().split('T')[0],
-                pagos: docData.pagos.map(pago => {
-                  const abonos = pago.abonos || [];
-                  const totalAbonado = abonos.reduce((sum, abono) => {
-                    const cantidad = Number(abono.cantidad) || 0;
-                    return sum + cantidad;
-                  }, 0);
-                  
-                  const montoPago = Number(pago.monto) || 0;
-                  const totalRestante = Number(pago.total_restante) || 0;
-                  
-                  // Determinar el estado basado en total_restante en lugar de estatus
-                  const estatus = totalRestante <= 0 ? "pagado" : "pendiente";
-                  
-                  return {
-                    ...pago,
-                    id: pago.id || `${jugadorId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                    estatus, // Usamos el nuevo estatus calculado
-                    fecha_limite: pago.fecha_limite || null,
-                    fecha_pago: pago.fecha_pago || null,
-                    monto: montoPago,
-                    tipo: pago.tipo || "Pago",
-                    beca: pago.beca || "0",
-                    descuento: pago.descuento || "0",
-                    prorroga: pago.prorroga || false,
-                    metodo_pago: pago.metodo_pago || null,
-                    abono: pago.abono || "NO",
-                    abonos: abonos,
-                    total_abonado: totalAbonado,
-                    submonto: Number(pago.submonto) || 0,
-                    saldo_pendiente: Math.max(0, totalRestante), // Usamos total_restante directamente
-                    total_restante: totalRestante // Mantenemos el campo original
-                  };
-                })
+            console.log('doc data: ', docData);
+            const transformedData = {
+            id: querySnapshot.docs[0].id,
+            jugadorId: jugadorId,
+            monto_total: docData.monto_total || 0,
+            nombre_jugador: docData.nombre || (esPorrista ? "Porrista" : "Jugador"),
+            categoria: docData.categoria || null,
+            temporadaId: docData.temporadaId || null,
+            fecha_registro: docData.fecha_registro || new Date().toISOString().split('T')[0],
+            monto_total_pagado: docData.monto_total_pagado,
+            monto_total_pendiente: docData.monto_total_pendiente,
+            pagos: docData.pagos.map(pago => {
+              
+              // Calcular total abonado sumando todos los abonos
+              const abonos = pago.abonos || [];
+              const  totalAbonado = abonos.reduce((sum, abono) => sum + (Number(abono.cantidad)  || 0), 0);
+              
+              
+              const montoPago = Number(pago.monto) || 0;
+
+              //total restante
+              const  totalRestante = Number(pago.total_restante);
+              
+              // Calcular saldo pendiente (siempre basado en abonos reales)
+              const saldoPendiente = Math.max(0, montoPago - totalAbonado);
+              
+              // Determinar estado basado en el saldo real
+
+              let estatus = "pagado";
+              if (saldoPendiente <= 0 || pago.estatus === 'pagado') {
+                estatus = "pagado";
+              } else if (totalAbonado > 0) {
+                estatus = "abonado"; // Nuevo estado para pagos con abonos parciales
+              } else {
+                estatus = "pendiente";
+              }
+
+              return {
+                ...pago,
+                id: pago.id || `${jugadorId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                estatus,
+                fecha_limite: pago.fecha_limite || null,
+                fecha_pago: pago.fecha_pago || null,
+                monto: montoPago,
+                tipo: pago.tipo || "Pago",
+                beca: pago.beca || "0",
+                descuento: pago.descuento || "0",
+                prorroga: pago.prorroga || false,
+                metodo_pago: pago.metodo_pago || null,
+                abono: pago.abono || "NO",
+                abonos: abonos,
+                total_abonado: totalAbonado,
+                submonto: Number(pago.submonto) || 0,
+                saldo_pendiente: saldoPendiente,
+                total_restante: totalRestante,
               };
+            })
+          };
+
+          console.log("transform data ", transformedData);
+
 
 
           // Calcular totales después de transformar los pagos
-              
-              transformedData.monto_total_pagado = transformedData.pagos.reduce((sum, pago) => {
-                return sum + (pago.total_abonado || 0);
-              }, 0);
-
-              transformedData.monto_total_pendiente = transformedData.pagos.reduce((sum, pago) => {
-                return sum + (Math.max(0, pago.total_restante || 0));
-              }, 0);
 
 
 
@@ -262,9 +288,11 @@ const PagosScreen = ({ route, navigation }) => {
         setLoading(false);
       });
 
+
     return () => unsubscribe();
   }, [jugadorId, esPorrista]);
 
+  
 const generatePDF = async (pago) => {
     let logoBase64 = '';
     try {
@@ -525,6 +553,7 @@ const generatePDF = async (pago) => {
     }
   };
 
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -558,7 +587,7 @@ const generatePDF = async (pago) => {
       </View>
     );
   }
-
+  console.log("monto de pago hola ", pagoData);
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.mobileContainer}>
@@ -567,12 +596,7 @@ const generatePDF = async (pago) => {
           contentContainerStyle={styles.scrollContent}
         >
           <View style={styles.header}>
-            <TouchableOpacity 
-              style={styles.backButton}
-              onPress={() => navigation.goBack()}
-            >
-              <Ionicons name="arrow-back" size={24} color="#333" />
-            </TouchableOpacity>
+
             <Text style={styles.headerTitle}>
               Pagos de {pagoData.nombre_jugador}
             </Text>
@@ -704,7 +728,7 @@ const generatePDF = async (pago) => {
 
           <Text style={styles.sectionTitle}>Detalle de Pagos</Text>
 
-          {pagoData.pagos.map((pago, index) => {
+          {pagoData.pagos.map((pago, index) => { 
             const esCoaching = pago.tipo.toLowerCase().includes("coaching");
               let estatusMostrado = pago.estatus; 
 
@@ -842,7 +866,7 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     width: "100%",
-    height: "100%",
+    height: "150%",
   },
   scrollContent: {
     padding: 20,

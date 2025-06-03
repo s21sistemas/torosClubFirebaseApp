@@ -313,315 +313,288 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
     }
   };
   
-const handleSubmit = async () => {
-  if (!validateForm()) {
-    Alert.alert('Error', 'Por favor completa todos los campos requeridos');
-    return;
-  }
-
-  setLoading(true);
-
-  try {
-    // 1. Verificar autenticación
-    const user = auth.currentUser;
-    if (!user) {
-      throw new Error('No se pudo verificar tu sesión. Vuelve a iniciar sesión.');
-    }
-    const uid = user.uid;
-
-    // 2. Subir archivos
-    let fotoJugadorURL = null;
-    if (formData.foto_jugador?.uri) {
-      setCurrentUpload('Foto del jugador');
-      fotoJugadorURL = await safeUploadFile({
-        uri: formData.foto_jugador.uri,
-        name: formData.foto_jugador.name || 'foto_jugador.jpg',
-        folder: 'fotos',
-        type: formData.foto_jugador.type || 'image/jpeg'
-      });
+  const handleSubmit = async () => {
+    if (!validateForm()) {
+      Alert.alert('Error', 'Por favor completa todos los campos requeridos');
+      return;
     }
 
-    // 3. Subir documentos
-    const documentosSubidos = {};
-    const documentosFields = ['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'];
-    
-    for (const field of documentosFields) {
-      if (formData.documentos[field]?.uri) {
-        setCurrentUpload(`Documento ${field}`);
-        documentosSubidos[field] = await safeUploadFile({
-          uri: formData.documentos[field].uri,
-          name: formData.documentos[field].name || `${field}.pdf`,
-          folder: 'documentos',
-          type: formData.documentos[field].type || 'application/pdf'
-        });
-      }
-    }
+    setLoading(true);
 
-    // 4. Subir firma si existe
-    let firmaURL = null;
-    if (formData.firma.length > 0) {
-      setCurrentUpload('Firma');
-      const signatureImage = await captureSignature();
-      if (signatureImage) {
-        firmaURL = await safeUploadFile({
-          uri: signatureImage,
-          name: 'firma.png',
-          folder: 'firmas',
-          type: 'image/png'
-        });
-      }
-    }
-
-    // 5. Obtener temporada activa
-    let temporadaActiva = null;
     try {
-      const temporadasQuery = query(
-        collection(db, 'temporadas'),
-        where('estado_temporada', '==', 'Activa')
-      );
-      const temporadasSnapshot = await getDocs(temporadasQuery);
-      if (!temporadasSnapshot.empty) {
-        const tempDoc = temporadasSnapshot.docs[0];
-        temporadaActiva = {
-          label: tempDoc.data().temporada || 'Temporada Activa',
-          value: tempDoc.id
-        };
-        console.log("TEMPORADA", temporadaActiva);
+      // 1. Verificar autenticación
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error('No se pudo verificar tu sesión. Vuelve a iniciar sesión.');
       }
-    } catch (dbError) {
-      console.error('Error al obtener temporada activa:', dbError);
-    }
+      const uid = user.uid;
 
-    // 6. Crear objeto de registro
-    const datosRegistro = {
-      nombre: formData.nombre,
-      apellido_p: formData.apellido_p,
-      apellido_m: formData.apellido_m,
-      sexo: formData.sexo,
-      categoria: formData.tipo_inscripcion === 'porrista' ? '' : formData.categoria,
-      direccion: formData.direccion,
-      telefono: formData.telefono,
-      fecha_nacimiento: formData.fecha_nacimiento.toISOString().split('T')[0],
-      lugar_nacimiento: formData.lugar_nacimiento,
-      curp: formData.curp,
-      grado_escolar: formData.grado_escolar,
-      nombre_escuela: formData.nombre_escuela,
-      alergias: formData.alergias,
-      padecimientos: formData.padecimientos,
-      peso: formData.peso,
-      tipo_inscripcion: formData.tipo_inscripcion,
-      foto: fotoJugadorURL,
-      documentos: {
-        ...documentosSubidos,
-        firma: firmaURL
-      },
-      activo: 'activo',
-      numero_mfl: formData.numero_mfl,
-      fecha_registro: new Date(),
-      uid: uid,
-      estatus: "Completo",
-      ...(temporadaActiva && { temporadaId: temporadaActiva }),
-      ...(formData.tipo_inscripcion === 'transferencia' && {
-        transferencia: formData.transferencia
-      })
-    };
+      // 2. Subir archivos
+      let fotoJugadorURL = null;
+      if (formData.foto_jugador?.uri) {
+        setCurrentUpload('Foto del jugador');
+        fotoJugadorURL = await safeUploadFile({
+          uri: formData.foto_jugador.uri,
+          name: formData.foto_jugador.name || 'foto_jugador.jpg',
+          folder: 'fotos',
+          type: formData.foto_jugador.type || 'image/jpeg'
+        });
+      }
 
-    // 7. Guardar en Firestore
-    const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
-    const docRef = await addDoc(collection(db, coleccion), datosRegistro);
-
-    // 8. Procesar pagos
-    await processPayments(docRef.id, formData, temporadaActiva);
-
-    
-       showAlert(
-      'Registro Exitoso',
-        'Jugador registrado correctamente',
-       [{ text: 'OK', onPress: () => navigation.navigate('MainTabs') }]);
-
-
-
-  } catch (error) {
-    console.error('Error completo en handleSubmit:', error);
-    Alert.alert('Error', error.message || 'Ocurrió un error al completar el registro');
-  } finally {
-    setLoading(false);
-    setCurrentUpload(null);
-  }
-};
-
-
-  // Función con reintentos automáticos
-  const withRetry = async (fn, maxRetries = 3, delayMs = 1000) => {
-    let lastError;
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        return await fn();
-      } catch (error) {
-        lastError = error;
-        if (i < maxRetries - 1) {
-          await new Promise(resolve => setTimeout(resolve, delayMs));
+      // 3. Subir documentos
+      const documentosSubidos = {};
+      const documentosFields = ['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'];
+      
+      for (const field of documentosFields) {
+        if (formData.documentos[field]?.uri) {
+          setCurrentUpload(`Documento ${field}`);
+          documentosSubidos[field] = await safeUploadFile({
+            uri: formData.documentos[field].uri,
+            name: formData.documentos[field].name || `${field}.pdf`,
+            folder: 'documentos',
+            type: formData.documentos[field].type || 'application/pdf'
+          });
         }
       }
+
+      // 4. Subir firma si existe
+      let firmaURL = null;
+      if (formData.firma.length > 0) {
+        setCurrentUpload('Firma');
+        const signatureImage = await captureSignature();
+        if (signatureImage) {
+          firmaURL = await safeUploadFile({
+            uri: signatureImage,
+            name: 'firma.png',
+            folder: 'firmas',
+            type: 'image/png'
+          });
+        }
+      }
+
+      // 5. Obtener temporada activa
+      let temporadaActiva = null;
+      try {
+        const temporadasQuery = query(
+          collection(db, 'temporadas'),
+          where('estado_temporada', '==', 'Activa')
+        );
+        const temporadasSnapshot = await getDocs(temporadasQuery);
+        if (!temporadasSnapshot.empty) {
+          const tempDoc = temporadasSnapshot.docs[0];
+          temporadaActiva = {
+            label: tempDoc.data().temporada || 'Temporada Activa',
+            value: tempDoc.id
+          };
+          console.log("TEMPORADA", temporadaActiva);
+        }
+      } catch (dbError) {
+        console.error('Error al obtener temporada activa:', dbError);
+      }
+
+      // 6. Crear objeto de registro
+      const datosRegistro = {
+        nombre: formData.nombre,
+        apellido_p: formData.apellido_p,
+        apellido_m: formData.apellido_m,
+        sexo: formData.sexo,
+        categoria: formData.tipo_inscripcion === 'porrista' ? '' : formData.categoria,
+        direccion: formData.direccion,
+        telefono: formData.telefono,
+        fecha_nacimiento: formData.fecha_nacimiento.toISOString().split('T')[0],
+        lugar_nacimiento: formData.lugar_nacimiento,
+        curp: formData.curp,
+        grado_escolar: formData.grado_escolar,
+        nombre_escuela: formData.nombre_escuela,
+        alergias: formData.alergias,
+        padecimientos: formData.padecimientos,
+        peso: formData.peso,
+        tipo_inscripcion: formData.tipo_inscripcion,
+        foto: fotoJugadorURL,
+        documentos: {
+          ...documentosSubidos,
+          firma: firmaURL
+        },
+        activo: 'activo',
+        numero_mfl: formData.numero_mfl,
+        fecha_registro: new Date(),
+        uid: uid,
+        estatus: "Completa",
+        ...(temporadaActiva && { temporadaId: temporadaActiva }),
+        ...(formData.tipo_inscripcion === 'transferencia' && {
+          transferencia: formData.transferencia
+        })
+      };
+      console.log(datosRegistro);
+
+      // 7. Guardar en Firestore
+      const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
+      const docRef = await addDoc(collection(db, coleccion), datosRegistro);
+
+      // 8. Procesar pagos
+      await processPayments(docRef.id, formData, temporadaActiva);
+    
+    showAlert(
+    'Registro Exitoso',
+    'Jugador registrado correctamente',
+    [{ text: 'OK', onPress: () => navigation.navigate('MainTabs') }]
+
+  );
+
+    } catch (error) {
+      console.error('Error completo en handleSubmit:', error);
+      Alert.alert('Error', error.message || 'Ocurrió un error al completar el registro');
+    } finally {
+      setLoading(false);
+      setCurrentUpload(null);
     }
-    throw lastError;
   };
-  
+
   // Procesar pagos (separado para mejor organización)
-const processPayments = async (playerId, formData, temporadaActiva) => {
-  try {
-    const costosCollection = formData.tipo_inscripcion === 'porrista' ? 'costos-porrista' : 'costos-jugador';
-    const costosQuery = collection(db, costosCollection);
-    const costosSnapshot = await getDocs(costosQuery);
-    
-    if (costosSnapshot.empty) {
-      throw new Error(`No se encontraron costos configurados para ${formData.tipo_inscripcion}`);
-    }
-
-    const costosDoc = costosSnapshot.docs[0];
-    const costosData = costosDoc.data();
-    const parseCost = (value) => parseInt(value || '0', 10);
-    
-    const nombreCompleto = `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`;
-    const fechaActual = new Date();
-    const fechaLimite = new Date();
-    fechaLimite.setDate(fechaLimite.getDate() + 7);
-
-    if (formData.tipo_inscripcion === 'porrista') {
-      const inscripcion = parseCost(costosData.inscripcion);
-      const coaching = parseCost(costosData.coaching);
-      const total = inscripcion + coaching;
-
-      const pagosPorrista = {
-        porristaId: playerId,
-        nombre: nombreCompleto,
-        pagos: [
-          {
-            tipo: 'Inscripción',
-            estatus: 'pendiente',
-            fecha_pago: null,
-            monto: inscripcion,
-            metodo_pago: null,
-            abono: 'NO',
-            abonos: [],
-            total_abonado: 0,
-            fecha_limite: fechaLimite.toISOString().split('T')[0]
-          },
-          {
-            tipo: 'Coaching',
-            estatus: 'pendiente',
-            fecha_pago: null,
-            monto: coaching,
-            metodo_pago: null,
-            abono: 'NO',
-            abonos: [],
-            total_abonado: 0,
-            fecha_limite: null
-          }
-        ],
-        monto_total_pagado: 0,
-        monto_total_pendiente: total,
-        monto_total: total,
-        fecha_registro: fechaActual.toISOString().split('T')[0],
-        temporadaId: temporadaActiva?.value || costosData.temporadaId?.value || null
-      };
-      await addDoc(collection(db, 'pagos_porristas'), pagosPorrista);
-    } else {
-      const inscripcion = parseCost(costosData.inscripcion);
-      const coaching = parseCost(costosData.coaching);
-      const tunel = parseCost(costosData.tunel);
-      const botiquin = parseCost(costosData.botiquin);
-      const equipamiento = parseCost(costosData.equipamiento);
-      const pesaje = parseCost(costosData.pesaje);
+  const processPayments = async (playerId, formData, temporadaActiva) => {
+    try {
+      const costosCollection = formData.tipo_inscripcion === 'porrista' ? 'costos-porrista' : 'costos-jugador';
+      const costosQuery = query(
+        collection(db, costosCollection),
+        where('temporadaId', '==', temporadaActiva),
+         where('categoria', '==', formData.categoria)
+      );
       
-      const total = inscripcion + coaching + tunel + botiquin + equipamiento + pesaje;
+      const costosSnapshot = await getDocs(costosQuery);
+      console.log(costosCollection);
+           console.log(costosQuery);
+      console.log(costosSnapshot);
 
-      const pagosJugador = {
-        jugadorId: playerId,
-        nombre: nombreCompleto,
-        categoria: formData.categoria,
-        pagos: [
-          {
-            tipo: 'Inscripción',
-            beca: '0',
-            descuento: '0',
-            estatus: 'pendiente',
-            fecha_pago: null,
-            submonto: 0,
-            monto: inscripcion,
-            prorroga: false,
-            fecha_limite: fechaLimite.toISOString().split('T')[0],
-            metodo_pago: null,
-            abono: 'NO',
-            abonos: [],
-            total_abonado: 0
-          },
-          {
-            tipo: 'Coaching',
-            estatus: 'pendiente',
-            fecha_pago: null,
-            fecha_limite: null,
-            monto: coaching,
-            metodo_pago: null,
-            abono: 'NO',
-            abonos: [],
-            total_abonado: 0
-          },
-          {
-            tipo: 'Túnel',
-            estatus: 'pendiente',
-            fecha_pago: null,
-            monto: tunel,
-            metodo_pago: null,
-            abono: 'NO',
-            abonos: [],
-            total_abonado: 0
-          },
-          {
-            tipo: 'Botiquín',
-            estatus: 'pendiente',
-            fecha_pago: null,
-            monto: botiquin,
-            metodo_pago: null,
-            abono: 'NO',
-            abonos: [],
-            total_abonado: 0
-          },
-          {
-            tipo: 'Equipamiento',
-            estatus: 'pendiente',
-            fecha_pago: null,
-            fecha_limite: null,
-            monto: equipamiento,
-            metodo_pago: null,
-            abono: 'NO',
-            abonos: [],
-            total_abonado: 0
-          },
-          {
-            tipo: 'Pesaje',
-            estatus: 'pendiente',
-            fecha_pago: null,
-            monto: pesaje,
-            metodo_pago: null,
-            abono: 'NO',
-            abonos: [],
-            total_abonado: 0
-          }
-        ],
-        monto_total_pagado: 0,
-        monto_total_pendiente: total,
-        monto_total: total,
-        fecha_registro: fechaActual.toISOString().split('T')[0],
-        temporadaId: temporadaActiva?.value || costosData.temporadaId?.value || null
-      };
-      await addDoc(collection(db, 'pagos_jugadores'), pagosJugador);
+      
+      
+      if (costosSnapshot.empty) {
+        throw new Error(`No se encontraron costos configurados para ${formData.tipo_inscripcion}`);
+      }
+  
+      const costosDoc = costosSnapshot.docs[0];
+      const costosData = costosDoc.data();
+      const parseCost = (value) => parseInt(value || '0', 10);
+      
+      const nombreCompleto = `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`;
+      const fechaActual = new Date();
+      const fechaLimite = new Date();
+      fechaLimite.setDate(fechaLimite.getDate() + 7);
+  
+      if (formData.tipo_inscripcion === 'porrista') {
+        const inscripcion = parseCost(costosData.inscripcion);
+        const coaching = parseCost(costosData.coaching);
+        const total = inscripcion + coaching;
+  
+        const pagosPorrista = {
+          porristaId: playerId,
+          nombre: nombreCompleto,
+          pagos: [
+            {
+              tipo: 'Inscripción',
+              estatus: 'pendiente',
+              fecha_pago: null,
+              monto: inscripcion,
+              metodo_pago: null,
+              abono: 'NO',
+              abonos: [],
+              total_abonado: 0,
+              fecha_limite: fechaLimite.toISOString().split('T')[0]
+            },
+            {
+              tipo: 'Coaching',
+              estatus: 'pendiente',
+              fecha_pago: null,
+              monto: coaching,
+              metodo_pago: null,
+              abono: 'NO',
+              abonos: [],
+              total_abonado: 0,
+              fecha_limite: null
+            }
+          ],
+          monto_total_pagado: 0,
+          monto_total_pendiente: total,
+          monto_total: total,
+          fecha_registro: fechaActual.toISOString().split('T')[0],
+          temporadaId: temporadaActiva || costosData.temporadaId || null
+        };
+        await addDoc(collection(db, 'pagos_porristas'), pagosPorrista);
+      } else {
+        const inscripcion = parseCost(costosData.inscripcion);
+        const coaching = parseCost(costosData.coaching);
+        const tunel = parseCost(costosData.tunel);
+        const botiquin = parseCost(costosData.botiquin);
+        const equipamiento = parseCost(costosData.equipamiento);
+        const pesaje = parseCost(costosData.pesaje);
+        
+        const total = inscripcion + coaching + tunel + botiquin + equipamiento + pesaje;
+  
+        const pagosJugador = {
+          jugadorId: playerId,
+          nombre: nombreCompleto,
+          categoria: formData.categoria,
+          pagos: [
+            {
+              tipo: 'Inscripción',
+              beca: '0',
+              descuento: '0',
+              estatus: 'pendiente',
+              fecha_pago: null,
+              submonto: 0,
+              monto: inscripcion,
+              prorroga: false,
+              fecha_limite: fechaLimite.toISOString().split('T')[0],
+              metodo_pago: null,
+              abono: 'NO',
+              abonos: [],
+              total_abonado: 0
+            },
+            {
+              tipo: 'Coaching',
+              estatus: 'pendiente',
+              fecha_pago: null,
+              fecha_limite: null,
+              monto: coaching,
+              metodo_pago: null,
+              abono: 'NO',
+              abonos: [],
+              total_abonado: 0
+            },
+            {
+              tipo: 'Túnel',
+              estatus: 'pendiente',
+              fecha_pago: null,
+              monto: tunel,
+              metodo_pago: null,
+              abono: 'NO',
+              abonos: [],
+              total_abonado: 0
+            },
+            {
+              tipo: 'Botiquín',
+              estatus: 'pendiente',
+              fecha_pago: null,
+              monto: botiquin,
+              metodo_pago: null,
+              abono: 'NO',
+              abonos: [],
+              total_abonado: 0
+            }
+            
+          ],//https://play.google.com/apps/test/com.mx.s1sistem.ClubToros/3
+          monto_total_pagado: 0,
+          monto_total_pendiente: total,
+          monto_total: total,
+          fecha_registro: fechaActual.toISOString().split('T')[0],
+          temporadaId: temporadaActiva || costosData.temporadaId || null
+        };
+        await addDoc(collection(db, 'pagos_jugadores'), pagosJugador);
+      }
+    } catch (error) {
+      console.error('Error al procesar pagos:', error);
+      throw new Error('Se completó el registro pero hubo un problema con los pagos. Contacta al administrador.');
     }
-  } catch (error) {
-    console.error('Error al procesar pagos:', error);
-    throw new Error('Se completó el registro pero hubo un problema con los pagos. Contacta al administrador.');
-  }
-};
+  };
   
   const renderForm = () => {
     switch (steps[currentStep]) {
@@ -921,7 +894,6 @@ const TipoInscripcionForm = ({ formData, setFormData, errors, onNext, navigation
   );
 };
 
-
 // Componente DatosPersonalesForm
 const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
   
@@ -985,6 +957,7 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
       }));
     }
   };
+
 
 useEffect(() => {
   // Limpiar error de categoría cuando se actualice a un valor válido
@@ -1525,7 +1498,6 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) 
     </ScrollView>
   );
 };
-
 
 const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, currentUpload, handleSelectFile }) => {
   const [acceptedRegulation, setAcceptedRegulation] = useState(false);

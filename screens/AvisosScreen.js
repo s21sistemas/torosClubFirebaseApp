@@ -178,7 +178,7 @@ const AvisosScreen = ({ navigation }) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ffbe00" />
+        <ActivityIndicator size="large" color="#b51f28" />
       </View>
     );
   }
@@ -205,7 +205,7 @@ const AvisosScreen = ({ navigation }) => {
             { opacity: fadeAnim }
           ]}
         >
-          <Ionicons name="notifications-off" size={48} color="#ffbe00" />
+          <Ionicons name="notifications-off" size={48} color="#b51f28" />
           <Text style={styles.noAvisosText}>No tienes avisos pendientes</Text>
           <Text style={styles.noAvisosSubtext}>Cuando tengas notificaciones, aparecerán aquí</Text>
         </Animated.View>
@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF',
   },
   header: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     padding: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
     borderLeftWidth: 4,
-    borderLeftColor: '#ffbe00',
+    borderLeftColor: '#b51f28',
   },
   avisoHeader: {
     flexDirection: 'row',
@@ -346,7 +346,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   deleteButton: {
-    backgroundColor: '#ffbe00',
+    backgroundColor: '#b51f28',
     justifyContent: 'center',
     alignItems: 'center',
     width: 80,

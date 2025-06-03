@@ -1,17 +1,16 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
-
 const firebaseConfig = {
-  apiKey: "AIzaSyAtGUX2LG4Ua6IQO1Cf9PuMP4GkZ80RA50",
-  authDomain: "toros-1453e.firebaseapp.com",
-  projectId: "toros-1453e",
-  storageBucket: "toros-1453e.appspot.com",
-  messagingSenderId: "898581498892",
-  appId: "1:898581498892:web:48e49c9bd5a0e15ed8f229"
+  apiKey: "AIzaSyAxQEbSBtaSwO76yNhHpGst63jWZkqkzxE",
+  authDomain: "potros-632ee.firebaseapp.com",
+  projectId: "potros-632ee",
+  storageBucket: "potros-632ee.firebasestorage.app",
+  messagingSenderId: "715399204517",
+  appId: "1:715399204517:web:6f82c57e723c47931b074c"
 };
 
-// Inicializar Firebase
+// Inicializar Firebase b51f28
 const app = initializeApp(firebaseConfig);
 
 // Auth sin persistencia personalizada (compatible con Expo Go)

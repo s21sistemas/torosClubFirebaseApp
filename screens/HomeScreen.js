@@ -15,7 +15,6 @@ import { getAuth } from 'firebase/auth';
 import { app } from '../firebaseConfig'; 
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
-import { captureRef } from 'react-native-view-shot';
 
 // Configuración de Firebase
 //b51f28
@@ -65,8 +64,7 @@ const HomeScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
   const [currentUpload, setCurrentUpload] = useState(null);
-  const signatureViewRef = useRef(null);
-
+  const signatureRef = useRef(null);
   const [categoria, setCategoria] = useState(null);
   const steps = [
     'GeneroForm',
@@ -79,52 +77,6 @@ const HomeScreen = ({ navigation }) => {
     'DocumentacionForm',
   ];
 
-
-  const uploadFirmaIfNeeded = async (firma) => {
-    if (!firma) {
-      console.warn('⚠️ No hay firma para subir');
-      return null;
-    }
-  
-    if (firma.startsWith('http')) {
-      console.log('📌 Firma ya subida:', firma);
-      return firma;
-    }
-  
-    const fileName = `firma_${Date.now()}.png`;
-  
-    try {
-      let fileUri;
-  
-      // Si es un data URI
-      if (firma.startsWith('data:image')) {
-        const base64 = firma.split(',')[1]; // quita el encabezado
-        fileUri = `${FileSystem.cacheDirectory}${fileName}`;
-        await FileSystem.writeAsStringAsync(fileUri, base64, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-      } else {
-        // Firma en base64 sin encabezado
-        fileUri = `${FileSystem.cacheDirectory}${fileName}`;
-        await FileSystem.writeAsStringAsync(fileUri, firma, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-      }
-  
-      const url = await safeUploadFile({
-        uri: fileUri,
-        name: fileName,
-        folder: 'firmas',
-        type: 'image/png',
-      });
-  
-      return url;
-    } catch (error) {
-      console.error('❌ Error subiendo firma:', error);
-      throw new Error('No se pudo procesar la firma');
-    }
-  };
-  
   
 const safeUploadFile = async ({ uri, name, folder, type = null }) => {
   try {
@@ -228,9 +180,10 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
         if (!formData.curp || formData.curp.length !== 18) newErrors.curp = 'CURP debe tener 18 caracteres';
         break;
       case 'FirmaFotoForm':
-        if ((formData.firma.length === 0) && (Platform.OS !== 'ios')) newErrors.firma = 'Captura tu firma';
+        if (formData.firma.length === 0) newErrors.firma = 'Captura tu firma';
         if (!formData.foto_jugador) newErrors.foto_jugador = 'Sube una foto del jugador';
         break;
+
     }
     
     setErrors(newErrors);
@@ -268,6 +221,28 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
       }).start();
     });
   };
+
+  const captureSignature = async () => {
+  if (!signatureRef.current) return null;
+  
+  try {
+    // Crear un canvas temporal para la firma
+    const canvas = await signatureRef.current.toDataURL();
+    
+    // En Android/iOS necesitamos convertir el data URL a un blob
+    if (Platform.OS !== 'web') {
+      const response = await fetch(canvas);
+      const blob = await response.blob();
+      return URL.createObjectURL(blob);
+    }
+    
+    return canvas;
+  } catch (error) {
+    console.error('Error al capturar firma:', error);
+    return null;
+  }
+};
+  
 
   const handleSelectFile = async (field) => {
     try {
@@ -339,113 +314,112 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
     }
   };
   
-  const handleSubmit = async () => {
-    if (!validateForm()) {
-      Alert.alert('Error', 'Por favor completa todos los campos requeridos');
-      return;
+const handleSubmit = async () => {
+  if (!validateForm()) {
+    Alert.alert('Error', 'Por favor completa todos los campos requeridos');
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    // 1. Verificar autenticación
+    const user = auth.currentUser;
+    if (!user) {
+      throw new Error('No se pudo verificar tu sesión. Vuelve a iniciar sesión.');
+    }
+    const uid = user.uid;
+
+    // 2. Subir archivos
+    let fotoJugadorURL = null;
+    if (formData.foto_jugador?.uri) {
+      setCurrentUpload('Foto del jugador');
+      fotoJugadorURL = await safeUploadFile({
+        uri: formData.foto_jugador.uri,
+        name: formData.foto_jugador.name || 'foto_jugador.jpg',
+        folder: 'fotos',
+        type: formData.foto_jugador.type || 'image/jpeg'
+      });
     }
 
-    setLoading(true);
-
-    try {
-      // 1. Verificar autenticación
-      const user = auth.currentUser;
-      if (!user) {
-        throw new Error('No se pudo verificar tu sesión. Vuelve a iniciar sesión.');
-      }
-      const uid = user.uid;
-
-      // 2. Subir archivos
-      let fotoJugadorURL = null;
-      if (formData.foto_jugador?.uri) {
-        setCurrentUpload('Foto del jugador');
-        fotoJugadorURL = await safeUploadFile({
-          uri: formData.foto_jugador.uri,
-          name: formData.foto_jugador.name || 'foto_jugador.jpg',
-          folder: 'fotos',
-          type: formData.foto_jugador.type || 'image/jpeg'
+    // 3. Subir documentos
+    const documentosSubidos = {};
+    const documentosFields = ['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'];
+    
+    for (const field of documentosFields) {
+      if (formData.documentos[field]?.uri) {
+        setCurrentUpload(`Documento ${field}`);
+        documentosSubidos[field] = await safeUploadFile({
+          uri: formData.documentos[field].uri,
+          name: formData.documentos[field].name || `${field}.pdf`,
+          folder: 'documentos',
+          type: formData.documentos[field].type || 'application/pdf'
         });
       }
-
-      // 3. Subir documentos
-      const documentosSubidos = {};
-      const documentosFields = ['ine_tutor', 'curp_jugador', 'acta_nacimiento', 'comprobante_domicilio'];
-      
-      for (const field of documentosFields) {
-        if (formData.documentos[field]?.uri) {
-          setCurrentUpload(`Documento ${field}`);
-          documentosSubidos[field] = await safeUploadFile({
-            uri: formData.documentos[field].uri,
-            name: formData.documentos[field].name || `${field}.pdf`,
-            folder: 'documentos',
-            type: formData.documentos[field].type || 'application/pdf'
-          });
-        }
-      }
-
-       // 4. Subir firma si existe
-    let firmaURL = null;
-    if (Platform.OS != 'ios') {
-      try {
-        setCurrentUpload('Firma');
-        firmaURL = await uploadFirmaIfNeeded(formData.firma);
-      
-        if (firmaURL) {
-          setFormData(prev => ({
-            ...prev,
-            firma: firmaURL,
-            documentos: {
-              ...prev.documentos,
-              firma: firmaURL,
-            },
-          }));
-        }
-      } catch (e) {
-        console.error('❌ Error al subir la firma:', e);
-      }
-      
     }
 
-      // 5. Obtener temporada activa
-      let temporadaActiva = null;
-      try {
-        const temporadasQuery = query(
-          collection(db, 'temporadas'),
-          where('estado_temporada', '==', 'Activa')
-        );
-        const temporadasSnapshot = await getDocs(temporadasQuery);
-        if (!temporadasSnapshot.empty) {
-          const tempDoc = temporadasSnapshot.docs[0];
-          temporadaActiva = {
-            label: tempDoc.data().temporada || 'Temporada Activa',
-            value: tempDoc.id
-          };
-          console.log("TEMPORADA", temporadaActiva);
-        }
-      } catch (dbError) {
-        console.error('Error al obtener temporada activa:', dbError);
+    // 4. Subir firma si existe
+    let firmaURL = null;
+    if (formData.firma.length > 0) {
+      setCurrentUpload('Firma');
+      const signatureImage = await captureSignature();
+      if (signatureImage) {
+        firmaURL = await safeUploadFile({
+          uri: signatureImage,
+          name: 'firma.png',
+          folder: 'firmas',
+          type: 'image/png'
+        });
       }
+    }
 
-          const datosMinimos = {
+    // 5. Obtener temporada activa
+    let temporadaActiva = null;
+    try {
+      const temporadasQuery = query(
+        collection(db, 'temporadas'),
+        where('estado_temporada', '==', 'Activa')
+      );
+      const temporadasSnapshot = await getDocs(temporadasQuery);
+      if (!temporadasSnapshot.empty) {
+        const tempDoc = temporadasSnapshot.docs[0];
+        temporadaActiva = {
+          label: tempDoc.data().temporada || 'Temporada Activa',
+          value: tempDoc.id
+        };
+        console.log("TEMPORADA", temporadaActiva);
+      }
+    } catch (dbError) {
+      console.error('Error al obtener temporada activa:', dbError);
+    }
+    const datosMinimos = {
       ...formData,
       foto: fotoJugadorURL,
-      firma: firmaURL
     };
+    console.log(datosMinimos);
     
     // Verifica si algún campo requerido está vacío, null o undefined
     const estaIncompleto = Object.entries(datosMinimos).some(([key, value]) => {
+      if(key === 'firma')return false;
       if (value === undefined || value == null || value == '') {
     }
       return value === undefined || value === null || value === '';
     });
-
+    
     const documentosIncompletos = Object.entries(datosMinimos.documentos).some(([key, value]) => {
+      if(key === 'firma')return false;
+
       if (value === undefined || value == null || value == '') {
     }
       return value === undefined || value === null || value === '';
     });
-    const estatus = (estaIncompleto || documentosIncompletos) ? 'Incompleto' : 'Completo';
 
+    console.log('estaIncompleto', estaIncompleto);
+    console.log('documentosIncompletos', documentosIncompletos);
+    
+    const estatus = (estaIncompleto || documentosIncompletos) ? 'Incompleto' : 'Completo';
+    
+    console.log('status', estatus);
     // 6. Crear objeto de registro
     const datosRegistro = {
       nombre: formData.nombre,
@@ -480,174 +454,160 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
       })
     };
 
-      // 7. Guardar en Firestore
-      const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
-      const docRef = await addDoc(collection(db, coleccion), datosRegistro);
+    // 7. Guardar en Firestore
+    const coleccion = formData.tipo_inscripcion === 'porrista' ? 'porristas' : 'jugadores';
+    const docRef = await addDoc(collection(db, coleccion), datosRegistro);
 
-      // 8. Procesar pagos
-      await processPayments(docRef.id, formData, temporadaActiva);
-    
+    // 8. Procesar pagos
+    await processPayments(docRef.id, formData, temporadaActiva);
+
     showAlert(
-    'Registro Exitoso',
-    'Jugador registrado correctamente',
-    [{ text: 'OK', onPress: () => navigation.navigate('MainTabs') }]
+      'Registro Exitoso',
+        'Jugador registrado correctamente',
+       [{ text: 'OK', onPress: () => navigation.navigate('MainTabs') }]);
 
-  );
 
-    } catch (error) {
-      console.error('Error completo en handleSubmit:', error);
-      Alert.alert('Error', error.message || 'Ocurrió un error al completar el registro');
-    } finally {
-      setLoading(false);
-      setCurrentUpload(null);
-    }
-  };
 
+  } catch (error) {
+    console.error('Error completo en handleSubmit:', error);
+    Alert.alert('Error', error.message || 'Ocurrió un error al completar el registro');
+  } finally {
+    setLoading(false);
+    setCurrentUpload(null);
+  }
+};
+
+
+
+  
   // Procesar pagos (separado para mejor organización)
-  const processPayments = async (playerId, formData, temporadaActiva) => {
-    try {
-      const costosCollection = formData.tipo_inscripcion === 'porrista' ? 'costos-porrista' : 'costos-jugador';
-      const costosQuery = query(
-        collection(db, costosCollection),
-        where('temporadaId', '==', temporadaActiva),
-         where('categoria', '==', formData.categoria)
-      );
-      
-      const costosSnapshot = await getDocs(costosQuery);
-      console.log(costosCollection);
-           console.log(costosQuery);
-      console.log(costosSnapshot);
+// Modifica la llamada a processPayments en handleSubmit:
 
-      
-      
-      if (costosSnapshot.empty) {
-        throw new Error(`No se encontraron costos configurados para ${formData.tipo_inscripcion}`);
-      }
-  
-      const costosDoc = costosSnapshot.docs[0];
-      const costosData = costosDoc.data();
-      const parseCost = (value) => parseInt(value || '0', 10);
-      
-      const nombreCompleto = `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`;
-      const fechaActual = new Date();
-      const fechaLimite = new Date();
-      fechaLimite.setDate(fechaLimite.getDate() + 7);
-  
-      if (formData.tipo_inscripcion === 'porrista') {
-        const inscripcion = parseCost(costosData.inscripcion);
-        const coaching = parseCost(costosData.coaching);
-        const total = inscripcion + coaching;
-  
-        const pagosPorrista = {
-          porristaId: playerId,
-          nombre: nombreCompleto,
-          pagos: [
-            {
-              tipo: 'Inscripción',
-              estatus: 'pendiente',
-              fecha_pago: null,
-              monto: inscripcion,
-              metodo_pago: null,
-              abono: 'NO',
-              abonos: [],
-              total_abonado: 0,
-              fecha_limite: fechaLimite.toISOString().split('T')[0]
-            },
-            {
-              tipo: 'Coaching',
-              estatus: 'pendiente',
-              fecha_pago: null,
-              monto: coaching,
-              metodo_pago: null,
-              abono: 'NO',
-              abonos: [],
-              total_abonado: 0,
-              fecha_limite: null
-            }
-          ],
-          monto_total_pagado: 0,
-          monto_total_pendiente: total,
-          monto_total: total,
-          fecha_registro: fechaActual.toISOString().split('T')[0],
-          temporadaId: temporadaActiva || costosData.temporadaId || null
-        };
-        await addDoc(collection(db, 'pagos_porristas'), pagosPorrista);
-      } else {
-        const inscripcion = parseCost(costosData.inscripcion);
-        const coaching = parseCost(costosData.coaching);
-        const tunel = parseCost(costosData.tunel);
-        const botiquin = parseCost(costosData.botiquin);
-        const equipamiento = parseCost(costosData.equipamiento);
-        const pesaje = parseCost(costosData.pesaje);
-        
-        const total = inscripcion + coaching + tunel + botiquin + equipamiento + pesaje;
-  
-        const pagosJugador = {
-          jugadorId: playerId,
-          nombre: nombreCompleto,
-          categoria: formData.categoria,
-          pagos: [
-            {
-              tipo: 'Inscripción',
-              beca: '0',
-              descuento: '0',
-              estatus: 'pendiente',
-              fecha_pago: null,
-              submonto: 0,
-              monto: inscripcion,
-              prorroga: false,
-              fecha_limite: fechaLimite.toISOString().split('T')[0],
-              metodo_pago: null,
-              abono: 'NO',
-              abonos: [],
-              total_abonado: 0
-            },
-            {
-              tipo: 'Coaching',
-              estatus: 'pendiente',
-              fecha_pago: null,
-              fecha_limite: null,
-              monto: coaching,
-              metodo_pago: null,
-              abono: 'NO',
-              abonos: [],
-              total_abonado: 0
-            },
-            {
-              tipo: 'Túnel',
-              estatus: 'pendiente',
-              fecha_pago: null,
-              monto: tunel,
-              metodo_pago: null,
-              abono: 'NO',
-              abonos: [],
-              total_abonado: 0
-            },
-            {
-              tipo: 'Botiquín',
-              estatus: 'pendiente',
-              fecha_pago: null,
-              monto: botiquin,
-              metodo_pago: null,
-              abono: 'NO',
-              abonos: [],
-              total_abonado: 0
-            }
-            
-          ],
-          monto_total_pagado: 0,
-          monto_total_pendiente: total,
-          monto_total: total,
-          fecha_registro: fechaActual.toISOString().split('T')[0],
-          temporadaId: temporadaActiva || costosData.temporadaId || null
-        };
-        await addDoc(collection(db, 'pagos_jugadores'), pagosJugador);
-      }
-    } catch (error) {
-      console.error('Error al procesar pagos:', error);
-      throw new Error('Se completó el registro pero hubo un problema con los pagos. Contacta al administrador.');
+
+// Y actualiza la función processPayments:
+const processPayments = async (playerId, formData, temporadaActiva) => {
+  try {
+    const costosCollection = formData.tipo_inscripcion === 'porrista' ? 'costos-porrista' : 'costos-jugador';
+    const costosQuery = collection(db, costosCollection);
+    const costosSnapshot = await getDocs(costosQuery);
+    
+    if (costosSnapshot.empty) {
+      throw new Error(`No se encontraron costos configurados para ${formData.tipo_inscripcion}`);
     }
-  };
+
+    const costosDoc = costosSnapshot.docs[0];
+    const costosData = costosDoc.data();
+    const parseCost = (value) => parseInt(value || '0', 10);
+    
+    const nombreCompleto = `${formData.nombre} ${formData.apellido_p} ${formData.apellido_m}`;
+    const fechaActual = new Date();
+    const fechaLimite = new Date();
+    fechaLimite.setDate(fechaLimite.getDate() + 7);
+
+    if (formData.tipo_inscripcion === 'porrista') {
+      const inscripcion = parseCost(costosData.inscripcion);
+      const coaching = parseCost(costosData.coaching);
+      const total = inscripcion + coaching;
+
+      const pagosPorrista = {
+        porristaId: playerId, // Usamos el playerId que recibimos como parámetro
+        nombre: nombreCompleto,
+        pagos: [
+          {
+            tipo: 'Inscripción',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            monto: inscripcion,
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0,
+            fecha_limite: fechaLimite.toISOString().split('T')[0]
+          },
+          {
+            tipo: 'Coaching',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            monto: coaching,
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0,
+            fecha_limite: null
+          }
+        ],
+        monto_total_pagado: 0,
+        monto_total_pendiente: total,
+        monto_total: total,
+        fecha_registro: fechaActual.toISOString().split('T')[0],
+        temporadaId: temporadaActiva || costosData.temporadaId
+      };
+      await addDoc(collection(db, 'pagos_porristas'), pagosPorrista);
+    } else {
+      const inscripcion = parseCost(costosData.inscripcion);
+      const coaching = parseCost(costosData.coaching);
+      const tunel = parseCost(costosData.tunel);
+      const botiquin = parseCost(costosData.botiquin);
+      const equipamiento = parseCost(costosData.equipamiento);
+      const pesaje = parseCost(costosData.pesaje);
+      
+      const total = inscripcion + coaching + tunel + botiquin + equipamiento + pesaje;
+
+      const pagosJugador = {
+        jugadorId: playerId, // Usamos el playerId que recibimos como parámetro
+        nombre: nombreCompleto,
+        categoria: formData.categoria,
+        pagos: [
+          {
+            tipo: 'Inscripción',
+            beca: '0',
+            descuento: '0',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            submonto: 0,
+            monto: inscripcion,
+            prorroga: false,
+            fecha_limite: fechaLimite.toISOString().split('T')[0],
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0
+          },
+          {
+            tipo: 'Equipamiento',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            fecha_limite: null,
+            monto: equipamiento,
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0
+          },
+          {
+            tipo: 'Pesaje',
+            estatus: 'pendiente',
+            fecha_pago: null,
+            monto: pesaje,
+            metodo_pago: null,
+            abono: 'NO',
+            abonos: [],
+            total_abonado: 0
+          }
+        ],
+        monto_total_pagado: 0,
+        monto_total_pendiente: total,
+        monto_total: total,
+        fecha_registro: fechaActual.toISOString().split('T')[0],
+        temporadaId: temporadaActiva?.value || costosData.temporadaId
+      };
+      await addDoc(collection(db, 'pagos_jugadores'), pagosJugador);
+    }
+  } catch (error) {
+    console.error('Error al procesar pagos:', error);
+    throw new Error('Se completó el registro pero hubo un problema con los pagos. Contacta al administrador.');
+  }
+};
   
   const renderForm = () => {
     switch (steps[currentStep]) {
@@ -664,8 +624,7 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
       case 'TransferenciaForm':
         return <TransferenciaForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} />;
       case 'FirmaFotoForm':
-        return <FirmaFotoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} signatureViewRef={signatureViewRef} onSubmit={handleSubmit}
-          currentUpload={currentUpload} />;
+        return <FirmaFotoForm formData={formData} setFormData={setFormData} errors={errors} onNext={handleNextStep} signatureRef={signatureRef} />;
       case 'DocumentacionForm':
         return <DocumentacionForm 
           formData={formData} 
@@ -691,7 +650,7 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
           <Animated.View style={{ opacity: fadeAnim, flex: 1 }}>
             {renderForm()}
           </Animated.View>
-          {currentStep > 0 && currentStep !== steps.length && (
+          {currentStep > 0 && currentStep !== steps.length - 1 && (
             <TouchableOpacity style={styles.backButton} onPress={handlePreviousStep}>
               <Text style={styles.backButtonText}>Atrás</Text>
             </TouchableOpacity>
@@ -948,6 +907,7 @@ const TipoInscripcionForm = ({ formData, setFormData, errors, onNext, navigation
   );
 };
 
+
 // Componente DatosPersonalesForm
 const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
   
@@ -1011,7 +971,6 @@ const DatosPersonalesForm = ({ formData, setFormData, errors, onNext }) => {
       }));
     }
   };
-
 
 useEffect(() => {
   // Limpiar error de categoría cuando se actualice a un valor válido
@@ -1247,10 +1206,6 @@ useEffect(() => {
   );
 };
 
-const validateContact = (direccion, telefono) => {
-  if ((direccion !== undefined && direccion !== '') && (telefono !== undefined && telefono !== '')) return true
-}
-
 // Componente DatosContactoForm
 const DatosContactoForm = ({ formData, setFormData, errors, onNext }) => {
   return (
@@ -1277,7 +1232,7 @@ const DatosContactoForm = ({ formData, setFormData, errors, onNext }) => {
           keyboardType="phone-pad"
         />
         {errors.telefono && <Text style={styles.errorText}>{errors.telefono}</Text>}
-        <TouchableOpacity style={styles.button} onPress={onNext} disabled={!validateContact(formData.direccion, formData.telefono)}>
+        <TouchableOpacity style={styles.button} onPress={onNext}>
           <Text style={styles.buttonText}>Continuar</Text>
         </TouchableOpacity>
       </View>
@@ -1388,14 +1343,14 @@ const TransferenciaForm = ({ formData, setFormData, errors, onNext }) => {
 };
 
 // Componente FirmaFotoForm
-const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureViewRef, onSubmit, currentUpload }) => {
+const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureRef }) => {
   const [paths, setPaths] = useState([]);
   const [currentPath, setCurrentPath] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(null);
   const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
   const [scrollEnabled, setScrollEnabled] = useState(true);
-  const titleDrawing = Platform.OS == 'ios' ? 'Foto' : 'Firma y Foto'
+
   useEffect(() => {
     (async () => {
       const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
@@ -1423,6 +1378,7 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureViewRef
       setIsDrawing(false);
       setPaths((prevPaths) => [...prevPaths, currentPath]);
       setCurrentPath([]);
+      setFormData(prev => ({ ...prev, firma: [...prev.firma, ...currentPath] }));
       setScrollEnabled(true);
     },
   });
@@ -1438,13 +1394,6 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureViewRef
     setPaths([]);
     setCurrentPath([]);
     setFormData(prev => ({ ...prev, firma: [] }));
-    setFormData(prev => ({
-      ...prev,
-      documentos: {
-        ...prev.documentos,
-        firma: []
-      }
-    }));
   };
 
  const handleSelectFoto = async () => {
@@ -1507,76 +1456,40 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureViewRef
     }
   };
 
-  const captureSignature = async () => {
-    try {
-      const uri = await captureRef(signatureViewRef, {
-        format: 'png',
-        quality: 1,
-        result: 'base64', // O 'tmpfile' si prefieres URI temporal
-      });
-      return uri;
-    } catch (error) {
-      console.error('Error capturando firma:', error);
-      return null;
-    }
-  };
-  
-  const saveFirm = async () => {
-    // Espera al siguiente frame (~50ms) para asegurar que el trazo se renderice
-    setTimeout(async () => {
-      const firmaBase64 = await captureSignature();
-  
-      if (!firmaBase64) {
-        Alert.alert('Error', 'No se pudo capturar la firma. Intenta de nuevo.');
-        return;
-      }
-  
-      const firmaDataUri = `data:image/png;base64,${firmaBase64}`;
-  
-      setFormData((prev) => ({
-        ...prev,
-        firma: firmaDataUri,
-        documentos: {
-          ...prev.documentos,
-          firma: firmaDataUri,
-        },
-      }));
-  
-      onNext(); // ✅ Llama después de guardar correctamente
-    }, 100); // puedes ajustar a 50 o 100 ms si quieres probar
-  };
-
   return (
     <ScrollView 
             style={styles.mainContent}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
-            scrollEnabled={scrollEnabled}
+            scrollEnabled={Platform.OS === 'ios' || Platform.OS === 'web' ? scrollEnabled : true}
           >
       <View style={styles.formContainer}>
-        <Text style={styles.title}>{titleDrawing}</Text>
-        { Platform.OS !== 'ios' ? <View>
+        <Text style={styles.title}>Firma y Foto </Text>
+        
         <Text style={styles.sectionTitle}>Firma:</Text>
         <View style={styles.signatureContainer} {...panResponder.panHandlers}>
-        <View
-            ref={signatureViewRef}
-            collapsable={false}
-            style={{ backgroundColor: 'white', flex: 1}} // ajusta según necesidad
-          >
-            <Svg width="100%" height="100%">
-              {paths.map((path, index) => (
-                <Path key={index} d={getPathData(path)} stroke="black" strokeWidth={3} fill="none" />
-              ))}
-              <Path d={getPathData(currentPath)} stroke="black" strokeWidth={3} fill="none" />
-              </Svg>
-          </View>
-
+          <Svg style={styles.canvas} ref={signatureRef}>
+            {paths.map((path, index) => (
+              <Path
+                key={index}
+                d={getPathData(path)}
+                stroke="black"
+                strokeWidth={3}
+                fill="none"
+              />
+            ))}
+            <Path
+              d={getPathData(currentPath)}
+              stroke="black"
+              strokeWidth={3}
+              fill="none"
+            />
+          </Svg>
         </View>
         <TouchableOpacity style={styles.secondaryButton} onPress={clearCanvas}>
           <Text style={styles.secondaryButtonText}>Limpiar Firma</Text>
         </TouchableOpacity>
         {errors.firma && <Text style={styles.errorText}>{errors.firma}</Text>}
-        </View> : <View/>}
         
         <Text style={styles.sectionTitle}>Foto del Jugador:</Text>
         {formData.foto_jugador && (
@@ -1594,67 +1507,20 @@ const FirmaFotoForm = ({ formData, setFormData, errors, onNext, signatureViewRef
           </TouchableOpacity>
         </View>
         {errors.foto_jugador && <Text style={styles.errorText}>{errors.foto_jugador}</Text>}
-        {Platform.OS === 'ios' ? 
-          <View>
-            <Declaracion onSubmit={onSubmit} currentUpload={currentUpload}/>
-          </View> : <View/>}
-        {Platform.OS !== 'ios' ? <TouchableOpacity style={styles.button} onPress={saveFirm}>
-          <Text style={styles.buttonText}>Continuar aqui</Text>
-        </TouchableOpacity> : <View/>}
+        
+        <TouchableOpacity style={styles.button} onPress={onNext}>
+          <Text style={styles.buttonText}>Continuar</Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
 };
 
-const Declaracion = ({onSubmit, currentUpload}) => {
-  const [acceptedRegulation, setAcceptedRegulation] = useState(false);
-  return (
-    <View>
-       {/* Sección de declaración de veracidad */}
-      
-
-        {/* Sección de aceptación del reglamento
-        aqui 2 */}
-        <View style={styles.regulationContainer}>
-          <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
-          
-          <TouchableOpacity 
-            onPress={() => Linking.openURL('https://clubpotros.mx/politicas/ReglamentoPotros.pdf')} 
-            style={styles.regulationLink}
-          >
-            <Text style={styles.regulationLinkText}>Descargue, lea y firme el reglamento</Text>
-          </TouchableOpacity>
-          
-          <View style={styles.checkboxContainer}>
-            <TouchableOpacity 
-              style={[styles.checkbox, acceptedRegulation && styles.checkboxChecked]}
-              onPress={() => setAcceptedRegulation(!acceptedRegulation)}
-            >
-              {acceptedRegulation && <Text style={styles.checkmark}>✓</Text>}
-            </TouchableOpacity>
-            <Text style={styles.regulationText}>
-              Confirmo que he leído y acepto el reglamento del equipo
-            </Text>
-          </View>
-        </View>
-
-        <TouchableOpacity 
-          style={[
-            styles.submitButton,
-            (!acceptedRegulation || currentUpload) && styles.disabledButton
-          ]} 
-          onPress={onSubmit}
-          disabled={!acceptedRegulation || !!currentUpload}
-        >
-          <Text style={styles.submitButtonText}>
-            {currentUpload ? 'Subiendo archivos...' : 'Finalizar Registro'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-  )
-}
 
 const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, currentUpload, handleSelectFile }) => {
+  const [acceptedRegulation, setAcceptedRegulation] = useState(false);
+  const [acceptedDeclaration, setAcceptedDeclaration] = useState(false);
+
   const renderFileInfo = (field) => {
     const doc = formData.documentos[field];
     if (!doc || !doc.uri) return null;
@@ -1710,7 +1576,44 @@ const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, cu
             {renderFileInfo(field)}
           </View>
         ))}
-        <Declaracion onSubmit={onSubmit} currentUpload={currentUpload} />
+
+
+        {/* Sección de aceptación del reglamento */}
+        <View style={styles.regulationContainer}>
+          <Text style={styles.regulationTitle}>Reglamento del Equipo</Text>
+          
+          <TouchableOpacity 
+            onPress={() => Linking.openURL('https://clubpotros.mx/politicas/ReglamentoPotros.pdf')} 
+            style={styles.regulationLink}
+          >
+            <Text style={styles.regulationLinkText}>Descargue, lea y firme el reglamento</Text>
+          </TouchableOpacity>
+          
+          <View style={styles.checkboxContainer}>
+            <TouchableOpacity 
+              style={[styles.checkbox, acceptedRegulation && styles.checkboxChecked]}
+              onPress={() => setAcceptedRegulation(!acceptedRegulation)}
+            >
+              {acceptedRegulation && <Text style={styles.checkmark}>✓</Text>}
+            </TouchableOpacity>
+            <Text style={styles.regulationText}>
+              Confirmo que he leído y acepto el reglamento del equipo
+            </Text>
+          </View>
+        </View>
+
+        <TouchableOpacity 
+          style={[
+            styles.submitButton,
+            (!acceptedRegulation  || currentUpload) && styles.disabledButton
+          ]} 
+          onPress={onSubmit}
+          disabled={!acceptedRegulation || !!currentUpload}
+        >
+          <Text style={styles.submitButtonText}>
+            {currentUpload ? 'Subiendo archivos...' : 'Finalizar Registro'}
+          </Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -1718,14 +1621,46 @@ const DocumentacionForm = ({ formData, setFormData, onSubmit, uploadProgress, cu
 
 // Estilos
 const styles = StyleSheet.create({
+
+
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#f5f5f5",
+    ...Platform.select({
+      web: { minHeight: '100vh' }
+    })
+  },
   container: {
     flex: 1,
-    paddingTop:35,
-    backgroundColor: '#f5f5f5',
+    ...Platform.select({
+      web: {
+        display: 'flex',
+        flexDirection: 'column',
+        height: '150%',
+        overflow: 'hidden'
+      }
+    })
   },
-  scrollContainer: {
-    flexGrow: 1,
-    padding: 20,
+  mainContent: {
+    flex: 1,
+    zIndex: 1,
+    paddingHorizontal: 15,
+    ...Platform.select({
+      web: {
+        maxHeight: '150%',
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch'
+      }
+    })
+  },
+  scrollContent: {
+    paddingBottom: 100,
+    ...Platform.select({
+      web: {
+        minHeight: '150%',
+        flexGrow: 1
+      }
+    })
   },
   formContainer: {
     backgroundColor: '#fff',
@@ -1789,7 +1724,7 @@ const styles = StyleSheet.create({
     borderColor: '#b51f28',
   },
   secondaryButtonText: {
-    color: '#333',
+    color: '#fff',
     fontWeight: '500',
   },
   submitButton: {
@@ -2042,15 +1977,8 @@ const styles = StyleSheet.create({
     color: '#495057',
     flex: 1,
   },
-    mainContent: {
-    flex: 1,
-    zIndex: 1,
-    paddingLeft: 10,
-    paddingRight: 10,
-  },
-  scrollContent: {
-    paddingBottom: 100,
-  },
+    
+  
    declarationContainer: {
     marginTop: 20,
     marginBottom: 20,

@@ -159,7 +159,6 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
   }
 };
 
-
   const validateForm = () => {
     const newErrors = {};
     
@@ -390,7 +389,30 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
         }
       } catch (dbError) {
         console.error('Error al obtener temporada activa:', dbError);
+
+
       }
+
+
+    const datosMinimos = {
+      ...formData,
+      foto: fotoJugadorURL,
+      firma: firmaURL
+    };
+    
+    // Verifica si algún campo requerido está vacío, null o undefined
+    const estaIncompleto = Object.entries(datosMinimos).some(([key, value]) => {
+      if (value === undefined || value == null || value == '') {
+    }
+      return value === undefined || value === null || value === '';
+    });
+    
+    const documentosIncompletos = Object.entries(datosMinimos.documentos).some(([key, value]) => {
+      if (value === undefined || value == null || value == '') {
+    }
+      return value === undefined || value === null || value === '';
+    });
+    const estatus = (estaIncompleto || documentosIncompletos) ? 'Incompleto' : 'Completo';
 
       // 6. Crear objeto de registro
       const datosRegistro = {
@@ -419,7 +441,7 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
         numero_mfl: formData.numero_mfl,
         fecha_registro: new Date(),
         uid: uid,
-        estatus: "Completo",
+        estatus,
         ...(temporadaActiva && { temporadaId: temporadaActiva }),
         ...(formData.tipo_inscripcion === 'transferencia' && {
           transferencia: formData.transferencia

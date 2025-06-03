@@ -419,7 +419,7 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
         numero_mfl: formData.numero_mfl,
         fecha_registro: new Date(),
         uid: uid,
-        estatus: "Completa",
+        estatus: "Completo",
         ...(temporadaActiva && { temporadaId: temporadaActiva }),
         ...(formData.tipo_inscripcion === 'transferencia' && {
           transferencia: formData.transferencia
@@ -581,7 +581,7 @@ const safeUploadFile = async ({ uri, name, folder, type = null }) => {
               total_abonado: 0
             }
             
-          ],//https://play.google.com/apps/test/com.mx.s1sistem.ClubToros/3
+          ],
           monto_total_pagado: 0,
           monto_total_pendiente: total,
           monto_total: total,

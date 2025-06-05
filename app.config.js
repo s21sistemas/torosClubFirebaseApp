@@ -4,7 +4,7 @@ export default() => ({
   expo: {
     name: "ClubToros",
     slug: "TorosClub",
-    version: "2.0.3",
+    version: "2.0.4",
     orientation: "portrait",
     icon: "./assets/logoToros.jpg",
     userInterfaceStyle: "light",
@@ -36,7 +36,7 @@ export default() => ({
       supportsTablet: true,
       bundleIdentifier: "com.mx.s1sistem.ClubToros",
       icon: "./assets/logoToros.jpg",
-      buildNumber: "4.0.1",
+      buildNumber: "4.0.8",
       usesAppleSignIn: true,
       config: {
         usesNonExemptEncryption: false

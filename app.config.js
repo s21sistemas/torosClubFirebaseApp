@@ -9,6 +9,7 @@ export default() => ({
     icon: "./assets/logoToros.jpg",
     userInterfaceStyle: "light",
     newArchEnabled: true,
+     jsEngine: "jsc",
     permissions: [
       "CAMERA",
       "MEDIA_LIBRARY"

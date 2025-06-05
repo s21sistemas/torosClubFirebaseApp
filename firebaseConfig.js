@@ -6,7 +6,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyAtGUX2LG4Ua6IQO1Cf9PuMP4GkZ80RA50",
   authDomain: "toros-1453e.firebaseapp.com",
   projectId: "toros-1453e",
-  storageBucket: "toros-1453e.appspot.com",
+  storageBucket: "toros-1453e.firebasestorage.app",
   messagingSenderId: "898581498892",
   appId: "1:898581498892:web:48e49c9bd5a0e15ed8f229"
 };
